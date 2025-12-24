@@ -2,26 +2,27 @@ import type { ReactNode } from 'react'
 
 import { Navigate, useLocation } from 'react-router-dom'
 
+import { useAuth } from '@/contexts/AuthContext'
 import { publicPaths } from '@/routes'
 
 interface AuthGuardProps {
   children: ReactNode
 }
 
-function isAuthenticated(): boolean {
-  // TODO: Replace with actual authentication logic
-  return !!localStorage.getItem('token')
-}
-
 export default function AuthGuard({ children }: AuthGuardProps) {
+  const { user, isLoading } = useAuth()
   const location = useLocation()
   const isPublicRoute = publicPaths.includes(location.pathname)
+
+  if (isLoading) {
+    return <div>Loading...</div>
+  }
 
   if (isPublicRoute) {
     return <>{children}</>
   }
 
-  if (!isAuthenticated()) {
+  if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
