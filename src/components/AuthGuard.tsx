@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 
 import { AppLayout } from '@/components/AppLayout'
+import { FullScreenSpinner } from '@/components/ui/spinner'
 import { useAuth } from '@/contexts/AuthContext'
 import { publicPaths } from '@/routes'
 
@@ -16,7 +17,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   const isPublicRoute = publicPaths.includes(location.pathname)
 
   if (isLoading) {
-    return <div>Loading...</div>
+    return <FullScreenSpinner message="Checking authentication..." />
   }
 
   if (isPublicRoute) {
