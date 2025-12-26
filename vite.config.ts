@@ -19,4 +19,7 @@ export default defineConfig({
     setupFiles: './__tests__/setup.ts',
     include: ['__tests__/**/*.{test,spec}.{ts,tsx}'],
   },
+  server: {
+    allowedHosts: ["rosamond-unabstractive-franklin.ngrok-free.dev"]
+  }
 })

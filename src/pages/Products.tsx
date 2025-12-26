@@ -1,0 +1,556 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Download, Loader2, Package, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import * as XLSX from 'xlsx'
+
+import {
+  ProductForm,
+  type ProductFormValues,
+} from '@/components/products/ProductForm'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { productComponentService, productService } from '@/lib/appwrite'
+import type { Product, ProductType } from '@/types/product'
+
+export default function Products() {
+  const [products, setProducts] = useState<Product[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(true)
+  const [total, setTotal] = useState(0)
+
+  // Dialog states
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [initialBundleItems, setInitialBundleItems] = useState<string[]>([])
+
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState('')
+  const [typeFilter, setTypeFilter] = useState<ProductType | 'all'>('all')
+
+  // Infinite scroll
+  const PAGE_SIZE = 50
+  const sentinelRef = useRef<HTMLTableRowElement>(null)
+
+  const fetchProducts = useCallback(async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      const result = await productService.list({
+        type: typeFilter === 'all' ? undefined : typeFilter,
+        limit: PAGE_SIZE,
+        offset: 0,
+      })
+      setProducts(result.documents)
+      setTotal(result.total)
+      setHasMore(result.documents.length < result.total)
+    } catch (err) {
+      setError('Failed to load products')
+      console.error('Error fetching products:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [typeFilter])
+
+  const loadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore) return
+
+    try {
+      setIsLoadingMore(true)
+      const result = await productService.list({
+        type: typeFilter === 'all' ? undefined : typeFilter,
+        limit: PAGE_SIZE,
+        offset: products.length,
+      })
+      setProducts((prev) => [...prev, ...result.documents])
+      setHasMore(products.length + result.documents.length < result.total)
+    } catch (err) {
+      console.error('Error loading more products:', err)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [typeFilter, products.length, isLoadingMore, hasMore])
+
+  useEffect(() => {
+    fetchProducts()
+  }, [fetchProducts])
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoading && !isLoadingMore) {
+          loadMore()
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMore, isLoading, isLoadingMore, loadMore])
+
+  const handleCreate = () => {
+    setSelectedProduct(null)
+    setInitialBundleItems([])
+    setIsFormOpen(true)
+  }
+
+  const handleExport = async () => {
+    try {
+      setIsExporting(true)
+      setError(null)
+
+      // Fetch all products for export
+      const allProducts: Product[] = []
+      let offset = 0
+      const limit = 100
+
+      while (true) {
+        const result = await productService.list({ limit, offset })
+        allProducts.push(...result.documents)
+        if (allProducts.length >= result.total) break
+        offset += limit
+      }
+
+      // Prepare data for Excel
+      const exportData = allProducts.map((product, index) => ({
+        'No.': index + 1,
+        'Barcode': product.barcode,
+        'SKU Code': product.sku_code || '',
+        'Product Name': product.name,
+        'Type': product.type === 'bundle' ? 'Bundle' : 'Single',
+        'Price': product.price,
+        'Created At': new Date(product.$createdAt).toLocaleString(),
+      }))
+
+      // Create workbook and worksheet
+      const worksheet = XLSX.utils.json_to_sheet(exportData)
+
+      // Set column widths
+      worksheet['!cols'] = [
+        { wch: 6 },   // No.
+        { wch: 15 },  // Barcode
+        { wch: 15 },  // SKU Code
+        { wch: 30 },  // Product Name
+        { wch: 10 },  // Type
+        { wch: 12 },  // Price
+        { wch: 20 },  // Created At
+      ]
+
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Products')
+
+      // Generate filename with date
+      const date = new Date().toISOString().split('T')[0]
+      const filename = `products_${date}.xlsx`
+
+      // Download the file
+      XLSX.writeFile(workbook, filename)
+    } catch (err) {
+      setError('Failed to export products')
+      console.error('Error exporting products:', err)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleEdit = async (product: Product) => {
+    setSelectedProduct(product)
+
+    if (product.type === 'bundle') {
+      try {
+        const components = await productComponentService.getByParentId(product.$id)
+        setInitialBundleItems(components.map((c) => c.child_product_id))
+      } catch (err) {
+        console.error('Error fetching bundle components:', err)
+        setInitialBundleItems([])
+      }
+    } else {
+      setInitialBundleItems([])
+    }
+
+    setIsFormOpen(true)
+  }
+
+  const handleDeleteClick = (product: Product) => {
+    setSelectedProduct(product)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const handleFormSubmit = async (data: ProductFormValues) => {
+    try {
+      setIsSubmitting(true)
+      setError(null)
+
+      let productId: string
+
+      if (selectedProduct) {
+        // Update existing product
+        await productService.update(selectedProduct.$id, {
+          sku_code: data.sku_code || undefined,
+          name: data.name,
+          type: data.type,
+          price: data.price,
+        })
+        productId = selectedProduct.$id
+      } else {
+        // Create new product
+        const newProduct = await productService.create({
+          barcode: data.barcode,
+          sku_code: data.sku_code || undefined,
+          name: data.name,
+          type: data.type,
+          price: data.price,
+        })
+        productId = newProduct.$id
+      }
+
+      // Handle bundle components
+      if (data.type === 'bundle') {
+        // Clear existing components first
+        await productComponentService.deleteAllForParent(productId)
+
+        // Create new components
+        for (const childProductId of data.bundleItems) {
+          await productComponentService.create({
+            parent_product_id: productId,
+            child_product_id: childProductId,
+            quantity: 1,
+          })
+        }
+      }
+
+      setIsFormOpen(false)
+      setSelectedProduct(null)
+      setInitialBundleItems([])
+      await fetchProducts()
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to save product'
+      setError(errorMessage)
+      console.error('Error saving product:', err)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!selectedProduct) return
+
+    try {
+      setIsSubmitting(true)
+      setError(null)
+      await productService.delete(selectedProduct.$id)
+      setIsDeleteDialogOpen(false)
+      setSelectedProduct(null)
+      await fetchProducts()
+    } catch (err) {
+      setError('Failed to delete product')
+      console.error('Error deleting product:', err)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleFormCancel = () => {
+    setIsFormOpen(false)
+    setSelectedProduct(null)
+    setInitialBundleItems([])
+  }
+
+  const filteredProducts = products.filter((product) => {
+    if (!searchQuery) return true
+    const query = searchQuery.toLowerCase()
+    return (
+      product.barcode.toLowerCase().includes(query) ||
+      product.name?.toLowerCase().includes(query) ||
+      product.sku_code?.toLowerCase().includes(query)
+    )
+  })
+
+  const formatPrice = (price: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(price)
+  }
+
+  return (
+    <div className="flex h-full flex-col gap-4 overflow-hidden">
+      <div className="flex shrink-0 flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Products</h1>
+          <p className="text-muted-foreground mt-1">
+            Manage your product catalog
+          </p>
+        </div>
+        <div className="flex gap-2 self-end sm:self-auto">
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={isExporting || isLoading}
+          >
+            {isExporting ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 size-4" />
+            )}
+            Export
+          </Button>
+          <Button onClick={handleCreate}>
+            <Plus className="mr-2 size-4" />
+            Add Product
+          </Button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-destructive/10 text-destructive shrink-0 rounded-md p-3 text-sm">
+          {error}
+        </div>
+      )}
+
+      <div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2" />
+          <Input
+            placeholder="Search by barcode, name, or SKU..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select
+          value={typeFilter}
+          onValueChange={(value) => setTypeFilter(value as ProductType | 'all')}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filter by type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="single">Single Items</SelectItem>
+            <SelectItem value="bundle">Bundles</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
+        <Table className="table-fixed">
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead className="w-[140px]">Barcode</TableHead>
+              <TableHead className="w-[120px]">SKU</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead className="w-[100px]">Type</TableHead>
+              <TableHead className="w-[100px] text-right">Price</TableHead>
+              <TableHead className="w-[100px]">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+        </Table>
+        <div className="flex-1 overflow-auto">
+          <Table className="table-fixed">
+            <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center">
+                  Loading products...
+                </TableCell>
+              </TableRow>
+            ) : filteredProducts.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center">
+                  <div className="flex flex-col items-center gap-2">
+                    <Package className="text-muted-foreground size-8" />
+                    <p className="text-muted-foreground">No products found</p>
+                    {searchQuery && (
+                      <Button
+                        variant="link"
+                        onClick={() => setSearchQuery('')}
+                        className="h-auto p-0"
+                      >
+                        Clear search
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              <>
+                {filteredProducts.map((product) => (
+                  <TableRow key={product.$id}>
+                    <TableCell className="w-[140px] font-mono">{product.barcode}</TableCell>
+                    <TableCell className="w-[120px] font-mono">
+                      {product.sku_code || '-'}
+                    </TableCell>
+                    <TableCell>{product.name}</TableCell>
+                    <TableCell className="w-[100px]">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
+                          product.type === 'bundle'
+                            ? 'bg-purple-100 text-purple-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}
+                      >
+                        {product.type === 'bundle' ? 'Bundle' : 'Single'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="w-[100px] text-right">
+                      {formatPrice(product.price)}
+                    </TableCell>
+                    <TableCell className="w-[100px]">
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEdit(product)}
+                          title="Edit product"
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteClick(product)}
+                          title="Delete product"
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {/* Sentinel row for infinite scroll */}
+                <TableRow ref={sentinelRef} className="h-1">
+                  <TableCell colSpan={6} className="p-0" />
+                </TableRow>
+                {/* Loading more indicator */}
+                {isLoadingMore && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-16 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="size-4 animate-spin" />
+                        <span className="text-muted-foreground text-sm">
+                          Loading more products...
+                        </span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </>
+            )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      {/* Products count */}
+      {!isLoading && products.length > 0 && (
+        <div className="text-muted-foreground shrink-0 text-center text-sm">
+          {searchQuery ? (
+            <>
+              Found {filteredProducts.length} matching products
+              {hasMore && ` (${products.length} of ${total} loaded)`}
+            </>
+          ) : (
+            <>
+              Showing {products.length} of {total} products
+              {!hasMore && ' (all loaded)'}
+            </>
+          )}
+        </div>
+      )}
+
+      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedProduct ? 'Edit Product' : 'Add New Product'}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedProduct
+                ? 'Update the product details below.'
+                : 'Enter the product details. Use a barcode scanner for quick entry.'}
+            </DialogDescription>
+          </DialogHeader>
+          <ProductForm
+            key={selectedProduct?.$id ?? 'new'}
+            product={selectedProduct}
+            initialBundleItems={initialBundleItems}
+            onSubmit={handleFormSubmit}
+            onCancel={handleFormCancel}
+            isLoading={isSubmitting}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Product</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;
+              {selectedProduct?.name || selectedProduct?.barcode}&quot;? This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSubmitting}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={isSubmitting}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {isSubmitting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}

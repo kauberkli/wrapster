@@ -10,6 +10,7 @@ export interface RouteConfig {
 
 const Login = lazy(() => import('@/pages/Login'))
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
+const Products = lazy(() => import('@/pages/Products'))
 
 export const routes: RouteConfig[] = [
   {
@@ -20,6 +21,11 @@ export const routes: RouteConfig[] = [
   {
     path: '/dashboard',
     component: Dashboard,
+    isPublic: false,
+  },
+  {
+    path: '/products',
+    component: Products,
     isPublic: false,
   },
 ]
