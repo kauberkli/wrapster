@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Suspense } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
@@ -8,10 +9,21 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import { LoadingProvider } from '@/contexts/LoadingContext'
 import { routes } from '@/routes'
 
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      gcTime: 1000 * 60 * 10, // 10 minutes (formerly cacheTime)
+      refetchOnWindowFocus: false,
+    },
+  },
+})
+
 function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <AuthProvider>
         <LoadingProvider>
           <AuthGuard>
             <Suspense fallback={<SuspenseSpinner />}>
@@ -30,6 +42,7 @@ function App() {
         </LoadingProvider>
       </AuthProvider>
     </BrowserRouter>
+    </QueryClientProvider>
   )
 }
 

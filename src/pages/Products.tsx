@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, Loader2, Package, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import {
   type ColumnDef,
@@ -47,77 +47,57 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { productComponentService, productService } from '@/lib/appwrite'
+import { useDebounce } from '@/hooks/use-debounce'
+import {
+  fetchAllProductsForExport,
+  useCreateProduct,
+  useDeleteProduct,
+  useProducts,
+  useUpdateProduct,
+} from '@/hooks/use-products'
+import { productComponentService } from '@/lib/appwrite'
 import type { Product, ProductType } from '@/types/product'
 
 export default function Products() {
-  const [products, setProducts] = useState<Product[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [hasMore, setHasMore] = useState(true)
-  const [total, setTotal] = useState(0)
-
   // Dialog states
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [initialBundleItems, setInitialBundleItems] = useState<string[]>([])
+  const [isExporting, setIsExporting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<ProductType | 'all'>('all')
+  const debouncedSearch = useDebounce(searchQuery, 300)
 
-  // Infinite scroll & virtualization
-  const PAGE_SIZE = 50
-  const ROW_HEIGHT = 53 // Approximate height of each table row in pixels
+  // Virtualization
+  const ROW_HEIGHT = 53
   const tableContainerRef = useRef<HTMLDivElement>(null)
 
-  const fetchProducts = useCallback(async () => {
-    try {
-      setIsLoading(true)
-      setError(null)
-      const result = await productService.list({
-        type: typeFilter === 'all' ? undefined : typeFilter,
-        limit: PAGE_SIZE,
-        offset: 0,
-      })
-      setProducts(result.documents)
-      setTotal(result.total)
-      setHasMore(result.documents.length < result.total)
-    } catch (err) {
-      setError('Failed to load products')
-      console.error('Error fetching products:', err)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [typeFilter])
+  // TanStack Query hooks
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useProducts({
+    type: typeFilter === 'all' ? undefined : typeFilter,
+  })
 
-  const loadMore = useCallback(async () => {
-    if (isLoadingMore || !hasMore) return
+  const createProduct = useCreateProduct()
+  const updateProduct = useUpdateProduct()
+  const deleteProduct = useDeleteProduct()
 
-    try {
-      setIsLoadingMore(true)
-      const result = await productService.list({
-        type: typeFilter === 'all' ? undefined : typeFilter,
-        limit: PAGE_SIZE,
-        offset: products.length,
-      })
-      setProducts((prev) => [...prev, ...result.documents])
-      setHasMore(products.length + result.documents.length < result.total)
-    } catch (err) {
-      console.error('Error loading more products:', err)
-    } finally {
-      setIsLoadingMore(false)
-    }
-  }, [typeFilter, products.length, isLoadingMore, hasMore])
+  // Flatten pages into single array
+  const products = useMemo(() => {
+    return data?.pages.flatMap((page) => page.documents) ?? []
+  }, [data])
 
-  useEffect(() => {
-    fetchProducts()
-  }, [fetchProducts])
-
+  const total = data?.pages[0]?.total ?? 0
+  const hasMore = hasNextPage ?? false
 
   const handleCreate = () => {
     setSelectedProduct(null)
@@ -130,17 +110,8 @@ export default function Products() {
       setIsExporting(true)
       setError(null)
 
-      // Fetch all products for export
-      const allProducts: Product[] = []
-      let offset = 0
-      const limit = 100
-
-      while (true) {
-        const result = await productService.list({ limit, offset })
-        allProducts.push(...result.documents)
-        if (allProducts.length >= result.total) break
-        offset += limit
-      }
+      // Fetch all products using parallel batch fetching
+      const allProducts = await fetchAllProductsForExport()
 
       // Prepare data for Excel
       const exportData = allProducts.map((product, index) => ({
@@ -209,58 +180,40 @@ export default function Products() {
 
   const handleFormSubmit = async (data: ProductFormValues) => {
     try {
-      setIsSubmitting(true)
       setError(null)
-
-      let productId: string
 
       if (selectedProduct) {
         // Update existing product
-        await productService.update(selectedProduct.$id, {
-          sku_code: data.sku_code || undefined,
-          name: data.name,
-          type: data.type,
-          price: data.price,
+        await updateProduct.mutateAsync({
+          productId: selectedProduct.$id,
+          data: {
+            sku_code: data.sku_code || undefined,
+            name: data.name,
+            type: data.type,
+            price: data.price,
+            bundleItems: data.bundleItems,
+          },
         })
-        productId = selectedProduct.$id
       } else {
         // Create new product
-        const newProduct = await productService.create({
+        await createProduct.mutateAsync({
           barcode: data.barcode,
           sku_code: data.sku_code || undefined,
           name: data.name,
           type: data.type,
           price: data.price,
+          bundleItems: data.bundleItems,
         })
-        productId = newProduct.$id
-      }
-
-      // Handle bundle components
-      if (data.type === 'bundle') {
-        // Clear existing components first
-        await productComponentService.deleteAllForParent(productId)
-
-        // Create new components
-        for (const childProductId of data.bundleItems) {
-          await productComponentService.create({
-            parent_product_id: productId,
-            child_product_id: childProductId,
-            quantity: 1,
-          })
-        }
       }
 
       setIsFormOpen(false)
       setSelectedProduct(null)
       setInitialBundleItems([])
-      await fetchProducts()
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : 'Failed to save product'
       setError(errorMessage)
       console.error('Error saving product:', err)
-    } finally {
-      setIsSubmitting(false)
     }
   }
 
@@ -268,17 +221,13 @@ export default function Products() {
     if (!selectedProduct) return
 
     try {
-      setIsSubmitting(true)
       setError(null)
-      await productService.delete(selectedProduct.$id)
+      await deleteProduct.mutateAsync(selectedProduct.$id)
       setIsDeleteDialogOpen(false)
       setSelectedProduct(null)
-      await fetchProducts()
     } catch (err) {
       setError('Failed to delete product')
       console.error('Error deleting product:', err)
-    } finally {
-      setIsSubmitting(false)
     }
   }
 
@@ -288,15 +237,16 @@ export default function Products() {
     setInitialBundleItems([])
   }
 
-  const filteredProducts = products.filter((product) => {
-    if (!searchQuery) return true
-    const query = searchQuery.toLowerCase()
-    return (
+  // Client-side filtering with debounced search
+  const filteredProducts = useMemo(() => {
+    if (!debouncedSearch) return products
+    const query = debouncedSearch.toLowerCase()
+    return products.filter((product) =>
       product.barcode.toLowerCase().includes(query) ||
       product.name?.toLowerCase().includes(query) ||
       product.sku_code?.toLowerCase().includes(query)
     )
-  })
+  }, [products, debouncedSearch])
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -403,19 +353,21 @@ export default function Products() {
   // Trigger loadMore when scrolling near the end
   useEffect(() => {
     const container = tableContainerRef.current
-    if (!container || isLoading || isLoadingMore || !hasMore) return
+    if (!container || isLoading || isFetchingNextPage || !hasMore) return
 
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container
       // Load more when user is within 200px of the bottom
       if (scrollHeight - scrollTop - clientHeight < 200) {
-        loadMore()
+        fetchNextPage()
       }
     }
 
     container.addEventListener('scroll', handleScroll)
     return () => container.removeEventListener('scroll', handleScroll)
-  }, [hasMore, isLoading, isLoadingMore, loadMore])
+  }, [hasMore, isLoading, isFetchingNextPage, fetchNextPage])
+
+  const isSubmitting = createProduct.isPending || updateProduct.isPending || deleteProduct.isPending
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden">
@@ -550,7 +502,7 @@ export default function Products() {
                   <tr style={{ height: totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0) }} />
                 )}
                 {/* Loading more indicator */}
-                {isLoadingMore && (
+                {isFetchingNextPage && (
                   <TableRow>
                     <TableCell colSpan={columns.length} className="h-16 text-center">
                       <div className="flex items-center justify-center gap-2">
@@ -571,7 +523,7 @@ export default function Products() {
       {/* Products count */}
       {!isLoading && products.length > 0 && (
         <div className="text-muted-foreground shrink-0 text-center text-sm">
-          {searchQuery ? (
+          {debouncedSearch ? (
             <>
               Found {filteredProducts.length} matching products
               {hasMore && ` (${products.length} of ${total} loaded)`}

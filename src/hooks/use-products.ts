@@ -1,0 +1,273 @@
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query'
+
+import { productComponentService, productService } from '@/lib/appwrite'
+import type { Product, ProductType } from '@/types/product'
+
+const PRODUCTS_QUERY_KEY = 'products'
+const PAGE_SIZE = 50
+
+interface ProductsQueryParams {
+  type?: ProductType
+}
+
+interface ProductsPage {
+  documents: Product[]
+  total: number
+  nextOffset: number | null
+}
+
+export function useProducts(params: ProductsQueryParams = {}) {
+  return useInfiniteQuery<ProductsPage>({
+    queryKey: [PRODUCTS_QUERY_KEY, params.type],
+    queryFn: async ({ pageParam = 0 }) => {
+      const result = await productService.list({
+        type: params.type,
+        limit: PAGE_SIZE,
+        offset: pageParam as number,
+      })
+
+      const nextOffset =
+        (pageParam as number) + result.documents.length < result.total
+          ? (pageParam as number) + result.documents.length
+          : null
+
+      return {
+        documents: result.documents,
+        total: result.total,
+        nextOffset,
+      }
+    },
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+    initialPageParam: 0,
+  })
+}
+
+interface CreateProductInput {
+  barcode: string
+  sku_code?: string
+  name: string
+  type: ProductType
+  price: number
+  bundleItems?: string[]
+}
+
+export function useCreateProduct() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (data: CreateProductInput) => {
+      const newProduct = await productService.create({
+        barcode: data.barcode,
+        sku_code: data.sku_code,
+        name: data.name,
+        type: data.type,
+        price: data.price,
+      })
+
+      // Handle bundle components
+      if (data.type === 'bundle' && data.bundleItems) {
+        for (const childProductId of data.bundleItems) {
+          await productComponentService.create({
+            parent_product_id: newProduct.$id,
+            child_product_id: childProductId,
+            quantity: 1,
+          })
+        }
+      }
+
+      return newProduct
+    },
+    onSuccess: (newProduct) => {
+      // Optimistically add to cache
+      queryClient.setQueriesData<{
+        pages: ProductsPage[]
+        pageParams: number[]
+      }>({ queryKey: [PRODUCTS_QUERY_KEY] }, (oldData) => {
+        if (!oldData) return oldData
+
+        const newPages = oldData.pages.map((page, index) => {
+          if (index === 0) {
+            return {
+              ...page,
+              documents: [newProduct, ...page.documents],
+              total: page.total + 1,
+            }
+          }
+          return { ...page, total: page.total + 1 }
+        })
+
+        return { ...oldData, pages: newPages }
+      })
+    },
+  })
+}
+
+interface UpdateProductInput {
+  productId: string
+  data: {
+    sku_code?: string
+    name: string
+    type: ProductType
+    price: number
+    bundleItems?: string[]
+  }
+}
+
+export function useUpdateProduct() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ productId, data }: UpdateProductInput) => {
+      const updatedProduct = await productService.update(productId, {
+        sku_code: data.sku_code,
+        name: data.name,
+        type: data.type,
+        price: data.price,
+      })
+
+      // Handle bundle components
+      if (data.type === 'bundle') {
+        await productComponentService.deleteAllForParent(productId)
+        if (data.bundleItems) {
+          for (const childProductId of data.bundleItems) {
+            await productComponentService.create({
+              parent_product_id: productId,
+              child_product_id: childProductId,
+              quantity: 1,
+            })
+          }
+        }
+      }
+
+      return updatedProduct
+    },
+    onMutate: async ({ productId, data }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: [PRODUCTS_QUERY_KEY] })
+
+      // Snapshot previous value
+      const previousData = queryClient.getQueriesData({
+        queryKey: [PRODUCTS_QUERY_KEY],
+      })
+
+      // Optimistically update cache
+      queryClient.setQueriesData<{
+        pages: ProductsPage[]
+        pageParams: number[]
+      }>({ queryKey: [PRODUCTS_QUERY_KEY] }, (oldData) => {
+        if (!oldData) return oldData
+
+        const newPages = oldData.pages.map((page) => ({
+          ...page,
+          documents: page.documents.map((product) =>
+            product.$id === productId
+              ? { ...product, ...data, sku_code: data.sku_code ?? null }
+              : product
+          ),
+        }))
+
+        return { ...oldData, pages: newPages }
+      })
+
+      return { previousData }
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousData) {
+        context.previousData.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data)
+        })
+      }
+    },
+  })
+}
+
+export function useDeleteProduct() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (productId: string) => {
+      await productService.delete(productId)
+      return productId
+    },
+    onMutate: async (productId) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: [PRODUCTS_QUERY_KEY] })
+
+      // Snapshot previous value
+      const previousData = queryClient.getQueriesData({
+        queryKey: [PRODUCTS_QUERY_KEY],
+      })
+
+      // Optimistically remove from cache
+      queryClient.setQueriesData<{
+        pages: ProductsPage[]
+        pageParams: number[]
+      }>({ queryKey: [PRODUCTS_QUERY_KEY] }, (oldData) => {
+        if (!oldData) return oldData
+
+        const newPages = oldData.pages.map((page) => ({
+          ...page,
+          documents: page.documents.filter(
+            (product) => product.$id !== productId
+          ),
+          total: page.total - 1,
+        }))
+
+        return { ...oldData, pages: newPages }
+      })
+
+      return { previousData }
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousData) {
+        context.previousData.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data)
+        })
+      }
+    },
+  })
+}
+
+// Parallel batch fetching for export
+const EXPORT_BATCH_SIZE = 100
+const MAX_CONCURRENT_REQUESTS = 5
+
+export async function fetchAllProductsForExport(): Promise<Product[]> {
+  // First, get total count with a minimal request
+  const initialResult = await productService.list({ limit: 1, offset: 0 })
+  const total = initialResult.total
+
+  if (total === 0) return []
+
+  // Calculate batch offsets
+  const offsets: number[] = []
+  for (let offset = 0; offset < total; offset += EXPORT_BATCH_SIZE) {
+    offsets.push(offset)
+  }
+
+  // Fetch in parallel batches (limited concurrency)
+  const allProducts: Product[] = []
+
+  for (let i = 0; i < offsets.length; i += MAX_CONCURRENT_REQUESTS) {
+    const batchOffsets = offsets.slice(i, i + MAX_CONCURRENT_REQUESTS)
+    const batchPromises = batchOffsets.map((offset) =>
+      productService.list({ limit: EXPORT_BATCH_SIZE, offset })
+    )
+    const results = await Promise.all(batchPromises)
+    results.forEach((result) => allProducts.push(...result.documents))
+  }
+
+  return allProducts
+}
+
+export function useExportProducts() {
+  return useMutation({
+    mutationFn: fetchAllProductsForExport,
+  })
+}
