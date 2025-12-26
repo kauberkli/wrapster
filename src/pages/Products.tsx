@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, Loader2, Package, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import {
+  type ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import * as XLSX from 'xlsx'
 
 import {
@@ -314,6 +320,89 @@ export default function Products() {
     }).format(price)
   }
 
+  // Define columns for React Table
+  const columns = useMemo<ColumnDef<Product>[]>(
+    () => [
+      {
+        accessorKey: 'barcode',
+        header: 'Barcode',
+        cell: ({ row }) => (
+          <span className="font-mono">{row.original.barcode}</span>
+        ),
+        size: 140,
+      },
+      {
+        accessorKey: 'sku_code',
+        header: 'SKU',
+        cell: ({ row }) => (
+          <span className="font-mono">{row.original.sku_code || '-'}</span>
+        ),
+        size: 120,
+      },
+      {
+        accessorKey: 'name',
+        header: 'Name',
+      },
+      {
+        accessorKey: 'type',
+        header: 'Type',
+        cell: ({ row }) => (
+          <span
+            className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
+              row.original.type === 'bundle'
+                ? 'bg-purple-100 text-purple-700'
+                : 'bg-blue-100 text-blue-700'
+            }`}
+          >
+            {row.original.type === 'bundle' ? 'Bundle' : 'Single'}
+          </span>
+        ),
+        size: 100,
+      },
+      {
+        accessorKey: 'price',
+        header: () => <div className="text-right">Price</div>,
+        cell: ({ row }) => (
+          <div className="text-right">{formatPrice(row.original.price)}</div>
+        ),
+        size: 100,
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleEdit(row.original)}
+              title="Edit product"
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleDeleteClick(row.original)}
+              title="Delete product"
+              className="text-destructive hover:text-destructive"
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+        ),
+        size: 100,
+      },
+    ],
+    []
+  )
+
+  const table = useReactTable({
+    data: filteredProducts,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  })
+
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden">
       <div className="flex shrink-0 flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -377,14 +466,20 @@ export default function Products() {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
         <Table className="table-fixed">
           <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead className="w-[140px]">Barcode</TableHead>
-              <TableHead className="w-[120px]">SKU</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead className="w-[100px]">Type</TableHead>
-              <TableHead className="w-[100px] text-right">Price</TableHead>
-              <TableHead className="w-[100px]">Actions</TableHead>
-            </TableRow>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    style={{ width: header.column.getSize() !== 150 ? header.column.getSize() : undefined }}
+                  >
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(header.column.columnDef.header, header.getContext())}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
           </TableHeader>
         </Table>
         <div className="flex-1 overflow-auto">
@@ -392,13 +487,13 @@ export default function Products() {
             <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
+                <TableCell colSpan={columns.length} className="h-24 text-center">
                   Loading products...
                 </TableCell>
               </TableRow>
-            ) : filteredProducts.length === 0 ? (
+            ) : table.getRowModel().rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
+                <TableCell colSpan={columns.length} className="h-24 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <Package className="text-muted-foreground size-8" />
                     <p className="text-muted-foreground">No products found</p>
@@ -416,58 +511,26 @@ export default function Products() {
               </TableRow>
             ) : (
               <>
-                {filteredProducts.map((product) => (
-                  <TableRow key={product.$id}>
-                    <TableCell className="w-[140px] font-mono">{product.barcode}</TableCell>
-                    <TableCell className="w-[120px] font-mono">
-                      {product.sku_code || '-'}
-                    </TableCell>
-                    <TableCell>{product.name}</TableCell>
-                    <TableCell className="w-[100px]">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
-                          product.type === 'bundle'
-                            ? 'bg-purple-100 text-purple-700'
-                            : 'bg-blue-100 text-blue-700'
-                        }`}
+                {table.getRowModel().rows.map((row) => (
+                  <TableRow key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        style={{ width: cell.column.getSize() !== 150 ? cell.column.getSize() : undefined }}
                       >
-                        {product.type === 'bundle' ? 'Bundle' : 'Single'}
-                      </span>
-                    </TableCell>
-                    <TableCell className="w-[100px] text-right">
-                      {formatPrice(product.price)}
-                    </TableCell>
-                    <TableCell className="w-[100px]">
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(product)}
-                          title="Edit product"
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDeleteClick(product)}
-                          title="Delete product"
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 ))}
                 {/* Sentinel row for infinite scroll */}
                 <TableRow ref={sentinelRef} className="h-1">
-                  <TableCell colSpan={6} className="p-0" />
+                  <TableCell colSpan={columns.length} className="p-0" />
                 </TableRow>
                 {/* Loading more indicator */}
                 {isLoadingMore && (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-16 text-center">
+                    <TableCell colSpan={columns.length} className="h-16 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <Loader2 className="size-4 animate-spin" />
                         <span className="text-muted-foreground text-sm">

@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
 import AuthGuard from '@/components/AuthGuard'
+import { Toaster } from '@/components/ui/sonner'
 import { SuspenseSpinner } from '@/components/ui/spinner'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { LoadingProvider } from '@/contexts/LoadingContext'
@@ -25,6 +26,7 @@ function App() {
               </Routes>
             </Suspense>
           </AuthGuard>
+          <Toaster position="top-right" />
         </LoadingProvider>
       </AuthProvider>
     </BrowserRouter>
