@@ -8,16 +8,10 @@ export interface RouteConfig {
   isPublic?: boolean
 }
 
-const Home = lazy(() => import('@/pages/Home'))
 const Login = lazy(() => import('@/pages/Login'))
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 
 export const routes: RouteConfig[] = [
-  {
-    path: '/',
-    component: Home,
-    isPublic: true,
-  },
   {
     path: '/login',
     component: Login,

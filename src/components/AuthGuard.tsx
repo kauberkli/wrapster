@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 import { Navigate, useLocation } from 'react-router-dom'
 
+import { AppLayout } from '@/components/AppLayout'
 import { useAuth } from '@/contexts/AuthContext'
 import { publicPaths } from '@/routes'
 
@@ -26,5 +27,5 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
-  return <>{children}</>
+  return <AppLayout>{children}</AppLayout>
 }
