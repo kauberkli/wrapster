@@ -213,10 +213,15 @@ export const productComponentService = {
 
   /**
    * Remove all components from a bundle
+   * @param parentProductId - The parent bundle product ID
+   * @param delayMs - Optional delay between delete operations to avoid rate limiting
    */
-  async deleteAllForParent(parentProductId: string): Promise<void> {
+  async deleteAllForParent(parentProductId: string, delayMs = 0): Promise<void> {
     const components = await this.getByParentId(parentProductId)
     for (const component of components) {
+      if (delayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, delayMs))
+      }
       await databaseService.deleteDocument(
         COLLECTIONS.PRODUCT_COMPONENTS,
         component.$id

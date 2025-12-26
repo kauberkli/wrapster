@@ -82,6 +82,13 @@ function DatePickerField({
   )
 }
 
+// Product quantity summary
+interface ProductQuantity {
+  name: string
+  barcode: string
+  quantity: number
+}
+
 // Report data types
 interface ReportData {
   startDateStr: string
@@ -91,6 +98,7 @@ interface ReportData {
   productMap: Map<string, string>
   uniqueBarcodes: string[]
   dailySummary: Map<string, { records: number; items: number }>
+  productQuantities: ProductQuantity[]
 }
 
 export default function Reports() {
@@ -186,6 +194,22 @@ export default function Reports() {
       }
     }
 
+    // Calculate product quantities (group by product name and count)
+    const quantityMap = new Map<string, { barcode: string; quantity: number }>()
+    for (const item of allItems) {
+      const productName = productMap.get(item.product_barcode) || 'Unknown Product'
+      const existing = quantityMap.get(productName)
+      if (existing) {
+        existing.quantity += 1
+      } else {
+        quantityMap.set(productName, { barcode: item.product_barcode, quantity: 1 })
+      }
+    }
+
+    const productQuantities: ProductQuantity[] = Array.from(quantityMap.entries())
+      .map(([name, data]) => ({ name, barcode: data.barcode, quantity: data.quantity }))
+      .sort((a, b) => b.quantity - a.quantity)
+
     return {
       startDateStr,
       endDateStr,
@@ -194,6 +218,7 @@ export default function Reports() {
       productMap,
       uniqueBarcodes,
       dailySummary,
+      productQuantities,
     }
   }, [startDate, endDate])
 
@@ -205,7 +230,7 @@ export default function Reports() {
       const data = await fetchReportData()
       if (!data) return
 
-      const { startDateStr, endDateStr, allRecords, allItems, productMap, uniqueBarcodes, dailySummary } = data
+      const { startDateStr, endDateStr, allRecords, allItems, productMap, uniqueBarcodes, dailySummary, productQuantities } = data
 
       // Prepare data for Excel export
       const exportData = allItems.map((item, index) => ({
@@ -247,6 +272,17 @@ export default function Reports() {
       dailySheet['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 15 }]
       XLSX.utils.book_append_sheet(workbook, dailySheet, 'Daily Summary')
 
+      // Product quantities sheet (grouped by product name)
+      const productQuantitiesData = productQuantities.map((p, index) => ({
+        'No.': index + 1,
+        'Product Name': p.name,
+        'Barcode': p.barcode,
+        'Total Quantity': p.quantity,
+      }))
+      const productSheet = XLSX.utils.json_to_sheet(productQuantitiesData)
+      productSheet['!cols'] = [{ wch: 6 }, { wch: 40 }, { wch: 15 }, { wch: 15 }]
+      XLSX.utils.book_append_sheet(workbook, productSheet, 'Product Quantities')
+
       // Details sheet
       const detailsSheet = XLSX.utils.json_to_sheet(exportData)
       detailsSheet['!cols'] = [
@@ -282,22 +318,29 @@ export default function Reports() {
       const data = await fetchReportData()
       if (!data) return
 
-      const { startDateStr, endDateStr, allRecords, allItems, productMap, uniqueBarcodes, dailySummary } = data
+      const { startDateStr, endDateStr, allRecords, allItems, productMap, uniqueBarcodes, dailySummary, productQuantities } = data
 
       // Create PDF document
       const doc = new jsPDF()
       const pageWidth = doc.internal.pageSize.getWidth()
 
+      // Consistent font sizes
+      const FONT_SIZE = {
+        TITLE: 16,
+        SECTION: 11,
+        TABLE: 9,
+      }
+
       // Title
-      doc.setFontSize(18)
+      doc.setFontSize(FONT_SIZE.TITLE)
       doc.text('Packaging Report', pageWidth / 2, 20, { align: 'center' })
 
       // Subtitle with date range
-      doc.setFontSize(12)
+      doc.setFontSize(FONT_SIZE.SECTION)
       doc.text(`${startDateStr} to ${endDateStr}`, pageWidth / 2, 28, { align: 'center' })
 
       // Summary section
-      doc.setFontSize(14)
+      doc.setFontSize(FONT_SIZE.SECTION)
       doc.text('Summary', 14, 42)
 
       const summaryTableData = [
@@ -314,13 +357,14 @@ export default function Reports() {
         body: summaryTableData,
         theme: 'grid',
         headStyles: { fillColor: [66, 66, 66] },
+        styles: { fontSize: FONT_SIZE.TABLE },
         margin: { left: 14, right: 14 },
         tableWidth: 'auto',
       })
 
       // Daily Summary section
       const dailySummaryY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 15
-      doc.setFontSize(14)
+      doc.setFontSize(FONT_SIZE.SECTION)
       doc.text('Daily Summary', 14, dailySummaryY)
 
       const dailySummaryData = Array.from(dailySummary.entries())
@@ -333,12 +377,41 @@ export default function Reports() {
         body: dailySummaryData,
         theme: 'grid',
         headStyles: { fillColor: [66, 66, 66] },
+        styles: { fontSize: FONT_SIZE.TABLE },
         margin: { left: 14, right: 14 },
+      })
+
+      // Product Quantities section
+      const productQuantitiesY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 15
+      doc.setFontSize(FONT_SIZE.SECTION)
+      doc.text('Product Quantities', 14, productQuantitiesY)
+
+      const productQuantitiesData = productQuantities.map((p, index) => [
+        String(index + 1),
+        p.name,
+        p.barcode,
+        String(p.quantity),
+      ])
+
+      autoTable(doc, {
+        startY: productQuantitiesY + 4,
+        head: [['#', 'Product Name', 'Barcode', 'Total Qty']],
+        body: productQuantitiesData,
+        theme: 'grid',
+        headStyles: { fillColor: [66, 66, 66] },
+        styles: { fontSize: FONT_SIZE.TABLE },
+        margin: { left: 14, right: 14 },
+        columnStyles: {
+          0: { cellWidth: 10 },
+          1: { cellWidth: 80 },
+          2: { cellWidth: 40 },
+          3: { cellWidth: 25 },
+        },
       })
 
       // Details section (new page)
       doc.addPage()
-      doc.setFontSize(14)
+      doc.setFontSize(FONT_SIZE.SECTION)
       doc.text('Details', 14, 20)
 
       const detailsData = allItems.map((item, index) => [
@@ -356,8 +429,8 @@ export default function Reports() {
         body: detailsData,
         theme: 'grid',
         headStyles: { fillColor: [66, 66, 66] },
+        styles: { fontSize: FONT_SIZE.TABLE },
         margin: { left: 14, right: 14 },
-        styles: { fontSize: 8 },
         columnStyles: {
           0: { cellWidth: 10 },
           1: { cellWidth: 22 },

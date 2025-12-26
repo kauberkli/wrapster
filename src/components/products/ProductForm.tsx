@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -25,32 +24,10 @@ import {
 } from '@/components/ui/select'
 import type { Product, ProductType } from '@/types/product'
 
-/**
- * Validates EAN-13 barcode format and check digit
- */
-function isValidEAN13(barcode: string): boolean {
-  // Must be exactly 13 digits
-  if (!/^\d{13}$/.test(barcode)) {
-    return false
-  }
-
-  // Calculate check digit
-  const digits = barcode.split('').map(Number)
-  let sum = 0
-  for (let i = 0; i < 12; i++) {
-    sum += digits[i] * (i % 2 === 0 ? 1 : 3)
-  }
-  const checkDigit = (10 - (sum % 10)) % 10
-
-  return checkDigit === digits[12]
-}
-
 const productFormSchema = z.object({
   barcode: z
     .string()
-    .min(1, 'Barcode is required')
-    .regex(/^\d{13}$/, 'Barcode must be exactly 13 digits')
-    .refine(isValidEAN13, 'Invalid EAN-13 check digit'),
+    .min(1, 'Product code is required'),
   sku_code: z.string().optional(),
   name: z.string().min(1, 'Product name is required'),
   type: z.enum(['single', 'bundle']),
@@ -83,6 +60,7 @@ export function ProductForm({
   const barcodeBuffer = useRef<string>('')
 
   const [bundleItems, setBundleItems] = useState<string[]>(initialBundleItems)
+  const [bundleError, setBundleError] = useState<string | null>(null)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(productFormSchema),
@@ -96,6 +74,13 @@ export function ProductForm({
   })
 
   const selectedType = form.watch('type')
+
+  // Clear bundle error when type changes to single
+  useEffect(() => {
+    if (selectedType === 'single') {
+      setBundleError(null)
+    }
+  }, [selectedType])
 
   // Reset bundle items when initialBundleItems changes
   useEffect(() => {
@@ -144,7 +129,22 @@ export function ProductForm({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [form])
 
+  // Clear bundle error when items are added
+  const handleBundleItemsChange = (items: string[]) => {
+    setBundleItems(items)
+    if (items.length > 0) {
+      setBundleError(null)
+    }
+  }
+
   const handleSubmit = async (data: FormValues) => {
+    // Validate bundle has at least one item
+    if (data.type === 'bundle' && bundleItems.length === 0) {
+      setBundleError('Bundle must have at least one product')
+      return
+    }
+
+    setBundleError(null)
     await onSubmit({
       ...data,
       bundleItems: data.type === 'bundle' ? bundleItems : [],
@@ -159,24 +159,21 @@ export function ProductForm({
           name="barcode"
           render={({ field }) => (
             <FormItem>
-              {field.value && isValidEAN13(field.value) && (
+              {field.value && (
                 <div className="mb-3 rounded-md border bg-white p-3">
-                  <Barcode value={field.value} format="EAN13" height={60} />
+                  <Barcode value={field.value} format="CODE128" height={60} />
                 </div>
               )}
-              <FormLabel>Barcode *</FormLabel>
+              <FormLabel>Product Code *</FormLabel>
               <FormControl>
                 <Input
                   {...field}
                   ref={barcodeInputRef}
-                  placeholder="Scan barcode or enter manually"
+                  placeholder="Scan or enter product code"
                   disabled={isLoading || !!product}
                   autoComplete="off"
                 />
               </FormControl>
-              <FormDescription>
-                EAN-13 format (13 digits)
-              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -269,11 +266,16 @@ export function ProductForm({
         </div>
 
         {selectedType === 'bundle' && (
-          <BundleItemsField
-            value={bundleItems}
-            onChange={setBundleItems}
-            disabled={isLoading}
-          />
+          <div className="space-y-2">
+            <BundleItemsField
+              value={bundleItems}
+              onChange={handleBundleItemsChange}
+              disabled={isLoading}
+            />
+            {bundleError && (
+              <p className="text-sm font-medium text-destructive">{bundleError}</p>
+            )}
+          </div>
         )}
 
         <div className="flex justify-end gap-2 pt-4">

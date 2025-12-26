@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
-import { Info, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Info, Loader2, Plus, Trash2, X } from 'lucide-react'
 import {
   type ColumnDef,
   flexRender,
@@ -64,16 +64,27 @@ function formatDateToString(date: Date): string {
 // Extended type to include product name for display
 interface PackagingItemWithProduct extends PackagingItem {
   product_name: string
+  is_bundle?: boolean
+  bundle_components?: BundleComponentItem[]
 }
 
 interface PackagingRecordWithItemsAndProducts extends PackagingRecord {
   items: PackagingItemWithProduct[]
 }
 
+// Bundle component for display
+interface BundleComponentItem {
+  barcode: string
+  productName: string
+  quantity: number
+}
+
 // Local item type for state (before saving to database)
 interface LocalPackagingItem {
   barcode: string
   productName: string
+  isBundle?: boolean
+  bundleComponents?: BundleComponentItem[]
 }
 
 export default function Packaging() {
@@ -118,23 +129,39 @@ export default function Packaging() {
   const barcodeBuffer = useRef<string>('')
   const scanHandledRef = useRef<boolean>(false)
 
-  // Fetch records for selected date with product names
+  // Fetch records for selected date with product names and bundle components
   const fetchRecords = useCallback(async () => {
     try {
       setIsLoading(true)
       const dateStr = formatDateToString(selectedDate)
       const records = await packagingRecordService.listByDate(dateStr)
 
-      // Fetch product names for all items
+      // Fetch product names and bundle components for all items
       const recordsWithProducts = await Promise.all(
         records.map(async (record) => {
           const itemsWithProducts = await Promise.all(
             record.items.map(async (item) => {
               const product = await productService.getByBarcode(item.product_barcode)
-              return {
+
+              const result: PackagingItemWithProduct = {
                 ...item,
                 product_name: product?.name ?? 'Unknown Product',
+                is_bundle: product?.type === 'bundle',
               }
+
+              // If it's a bundle, fetch its components
+              if (product && product.type === 'bundle') {
+                const productWithComponents = await productService.getWithComponents(product.$id)
+                if (productWithComponents.components && productWithComponents.components.length > 0) {
+                  result.bundle_components = productWithComponents.components.map((comp) => ({
+                    barcode: comp.product.barcode,
+                    productName: comp.product.name,
+                    quantity: comp.quantity,
+                  }))
+                }
+              }
+
+              return result
             })
           )
           return {
@@ -270,11 +297,25 @@ export default function Packaging() {
         return
       }
 
-      // Add to state only (no database record yet)
+      // Build the item, including bundle components if applicable
       const newItem: LocalPackagingItem = {
         barcode: barcodeToSubmit,
         productName: product.name,
+        isBundle: product.type === 'bundle',
       }
+
+      // If it's a bundle, fetch its components
+      if (product.type === 'bundle') {
+        const productWithComponents = await productService.getWithComponents(product.$id)
+        if (productWithComponents.components && productWithComponents.components.length > 0) {
+          newItem.bundleComponents = productWithComponents.components.map((comp) => ({
+            barcode: comp.product.barcode,
+            productName: comp.product.name,
+            quantity: comp.quantity,
+          }))
+        }
+      }
+
       setCurrentItems((prev) => [...prev, newItem])
       setProductInput('')
       setProductPopoverOpen(false)
@@ -290,20 +331,47 @@ export default function Packaging() {
   }, [currentWaybill, productInput])
 
   // Handle product selection from dropdown
-  const handleProductSelect = useCallback((product: Product) => {
+  const handleProductSelect = useCallback(async (product: Product) => {
     if (!currentWaybill) return
+
+    setIsSubmitting(true)
 
     const newItem: LocalPackagingItem = {
       barcode: product.barcode,
       productName: product.name,
+      isBundle: product.type === 'bundle',
     }
+
+    // If it's a bundle, fetch its components
+    if (product.type === 'bundle') {
+      try {
+        const productWithComponents = await productService.getWithComponents(product.$id)
+        if (productWithComponents.components && productWithComponents.components.length > 0) {
+          newItem.bundleComponents = productWithComponents.components.map((comp) => ({
+            barcode: comp.product.barcode,
+            productName: comp.product.name,
+            quantity: comp.quantity,
+          }))
+        }
+      } catch (err) {
+        console.error('Error fetching bundle components:', err)
+      }
+    }
+
     setCurrentItems((prev) => [...prev, newItem])
     setProductInput('')
     setProductPopoverOpen(false)
+    setIsSubmitting(false)
 
     // Keep focus on product input for continuous scanning
     setTimeout(() => productInputRef.current?.focus(), 0)
   }, [currentWaybill])
+
+  // Handle removing an item from current draft
+  const handleRemoveItem = useCallback((index: number) => {
+    setCurrentItems((prev) => prev.filter((_, i) => i !== index))
+    productInputRef.current?.focus()
+  }, [])
 
   // Handle completing current waybill - save to database
   const handleCompleteWaybill = useCallback(async () => {
@@ -334,6 +402,8 @@ export default function Packaging() {
           return {
             ...savedItem,
             product_name: item.productName,
+            is_bundle: item.isBundle,
+            bundle_components: item.bundleComponents,
           }
         })
       )
@@ -368,6 +438,21 @@ export default function Packaging() {
       const isWaybillField = activeElement === waybillInputRef.current
       const isProductField = activeElement === productInputRef.current
       const isOurField = isWaybillField || isProductField
+
+      // Backspace to go back to previous step (when input is empty)
+      // Works when: focused on product field with empty input, OR not focused on any input
+      const isOtherInput = activeElement?.tagName === 'INPUT' && !isOurField
+      const canGoBack = currentWaybill && productInput === '' && (isProductField || (!isOtherInput && !isWaybillField))
+      if (e.key === 'Backspace' && canGoBack) {
+        e.preventDefault()
+        // Go back to step 1 - clear waybill and items
+        setCurrentWaybill(null)
+        setCurrentItems([])
+        setWaybillInput('')
+        setProductInput('')
+        setTimeout(() => waybillInputRef.current?.focus(), 0)
+        return
+      }
 
       // Enter key to submit - works regardless of focus
       if (e.key === 'Enter') {
@@ -422,7 +507,6 @@ export default function Packaging() {
 
       // For character keys - capture for barcode scanning
       // Skip if focused on another input field (not ours)
-      const isOtherInput = activeElement?.tagName === 'INPUT' && !isOurField
       if (isOtherInput) return
 
       const currentTime = Date.now()
@@ -452,7 +536,7 @@ export default function Packaging() {
     // Use capture phase so this fires BEFORE the input's onKeyDown
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [currentWaybill, currentItems.length, handleWaybillSubmit, handleProductSubmit, handleCompleteWaybill, productNotFoundBarcode, waybillExistsNumber, deleteRecord])
+  }, [currentWaybill, currentItems.length, productInput, handleWaybillSubmit, handleProductSubmit, handleCompleteWaybill, productNotFoundBarcode, waybillExistsNumber, deleteRecord])
 
   // Handle delete record
   const handleDeleteRecord = async () => {
@@ -517,10 +601,27 @@ export default function Packaging() {
         cell: ({ row }) => (
           <div className="flex flex-col gap-1">
             {row.original.items.map((item, itemIndex) => (
-              <div key={item.$id} className="text-sm">
-                <span className="text-muted-foreground">{itemIndex + 1}.</span>{' '}
-                <span className="font-mono">{item.product_barcode}</span>
-                <span className="text-muted-foreground"> - {item.product_name}</span>
+              <div key={item.$id}>
+                <div className="text-sm">
+                  <span className="text-muted-foreground">{itemIndex + 1}.</span>{' '}
+                  <span className="font-mono">{item.product_barcode}</span>
+                  <span className="text-muted-foreground"> - {item.product_name}</span>
+                  {item.is_bundle && (
+                    <span className="ml-1 text-xs text-blue-600 dark:text-blue-400">(Bundle)</span>
+                  )}
+                </div>
+                {/* Show bundle components */}
+                {item.is_bundle && item.bundle_components && item.bundle_components.length > 0 && (
+                  <div className="ml-6 mt-1 flex flex-col gap-0.5 border-l-2 border-blue-200 pl-2 dark:border-blue-800">
+                    {item.bundle_components.map((comp, compIndex) => (
+                      <div key={compIndex} className="text-xs text-muted-foreground">
+                        <span className="font-mono">{comp.barcode}</span>
+                        <span> - {comp.productName}</span>
+                        {comp.quantity > 1 && <span className="font-medium"> ×{comp.quantity}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             {row.original.items.length === 0 && (
@@ -737,14 +838,50 @@ export default function Packaging() {
                         </div>
                       )}
                     </div>
-                    {/* Current items for active waybill */}
+                    {/* Current items for active waybill - Card Display */}
                     {currentItems.length > 0 && (
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-wrap gap-2 pt-1">
                         {currentItems.map((item, index) => (
-                          <div key={index} className="text-sm">
-                            <span className="text-muted-foreground">{index + 1}.</span>{' '}
-                            <span className="font-mono">{item.barcode}</span>
-                            <span className="text-muted-foreground"> - {item.productName}</span>
+                          <div
+                            key={index}
+                            className="relative rounded-lg border bg-card p-3 shadow-sm min-w-[200px] max-w-[280px]"
+                          >
+                            {/* Remove button */}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveItem(index)}
+                              className="absolute right-1 top-1 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              title="Remove item"
+                            >
+                              <X className="size-4" />
+                            </button>
+
+                            {/* Product info */}
+                            <div className="pr-6">
+                              <div className="font-medium text-sm line-clamp-2">{item.productName}</div>
+                              <div className="font-mono text-xs text-muted-foreground mt-1">{item.barcode}</div>
+                              {item.isBundle && (
+                                <span className="inline-block mt-1 px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                                  Bundle
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Bundle components */}
+                            {item.isBundle && item.bundleComponents && item.bundleComponents.length > 0 && (
+                              <div className="mt-2 pt-2 border-t border-dashed">
+                                <div className="text-xs font-medium text-muted-foreground mb-1">Contains:</div>
+                                <div className="flex flex-col gap-1">
+                                  {item.bundleComponents.map((comp, compIndex) => (
+                                    <div key={compIndex} className="text-xs text-muted-foreground flex items-center gap-1">
+                                      <span className="size-1 rounded-full bg-muted-foreground/50" />
+                                      <span className="truncate">{comp.productName}</span>
+                                      {comp.quantity > 1 && <span className="font-medium shrink-0">×{comp.quantity}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Loader2, Package, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { Download, FileUp, Loader2, Package, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import {
   type ColumnDef,
   flexRender,
@@ -48,6 +48,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useDebounce } from '@/hooks/use-debounce'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   fetchAllProductsForExport,
   useCreateProduct,
@@ -55,8 +56,9 @@ import {
   useProducts,
   useUpdateProduct,
 } from '@/hooks/use-products'
-import { productComponentService } from '@/lib/appwrite'
+import { productComponentService, productService } from '@/lib/appwrite'
 import type { Product, ProductType } from '@/types/product'
+import { toast } from 'sonner'
 
 export default function Products() {
   // Dialog states
@@ -65,7 +67,9 @@ export default function Products() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [initialBundleItems, setInitialBundleItems] = useState<string[]>([])
   const [isExporting, setIsExporting] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
@@ -87,6 +91,7 @@ export default function Products() {
     type: typeFilter === 'all' ? undefined : typeFilter,
   })
 
+  const queryClient = useQueryClient()
   const createProduct = useCreateProduct()
   const updateProduct = useUpdateProduct()
   const deleteProduct = useDeleteProduct()
@@ -152,6 +157,286 @@ export default function Products() {
       console.error('Error exporting products:', err)
     } finally {
       setIsExporting(false)
+    }
+  }
+
+  // Download import template
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      {
+        'Barcode': '1234567890123',
+        'SKU Code': 'SKU-001',
+        'Product Name': 'Sample Single Product',
+        'Type': 'Single',
+        'Price': 9.99,
+        'Bundle Components': '',
+      },
+      {
+        'Barcode': '9876543210987',
+        'SKU Code': 'SKU-BUNDLE-001',
+        'Product Name': 'Sample Bundle Product',
+        'Type': 'Bundle',
+        'Price': 29.99,
+        'Bundle Components': '1234567890123:2,ANOTHER-BARCODE:1',
+      },
+    ]
+
+    const instructionsData = [
+      { 'Column': 'Barcode', 'Required': 'Yes', 'Description': 'Unique product barcode (any format)' },
+      { 'Column': 'SKU Code', 'Required': 'No', 'Description': 'Optional SKU code for the product' },
+      { 'Column': 'Product Name', 'Required': 'Yes', 'Description': 'Name of the product' },
+      { 'Column': 'Type', 'Required': 'Yes', 'Description': 'Either "Single" or "Bundle"' },
+      { 'Column': 'Price', 'Required': 'No', 'Description': 'Product price (defaults to 0)' },
+      { 'Column': 'Bundle Components', 'Required': 'No', 'Description': 'For bundles: comma-separated list of BARCODE:QUANTITY pairs (e.g., "ABC123:2,DEF456:1")' },
+    ]
+
+    const workbook = XLSX.utils.book_new()
+
+    // Products sheet (template)
+    const productsSheet = XLSX.utils.json_to_sheet(templateData)
+    productsSheet['!cols'] = [
+      { wch: 18 }, // Barcode
+      { wch: 15 }, // SKU Code
+      { wch: 30 }, // Product Name
+      { wch: 10 }, // Type
+      { wch: 10 }, // Price
+      { wch: 40 }, // Bundle Components
+    ]
+    XLSX.utils.book_append_sheet(workbook, productsSheet, 'Products')
+
+    // Instructions sheet
+    const instructionsSheet = XLSX.utils.json_to_sheet(instructionsData)
+    instructionsSheet['!cols'] = [
+      { wch: 20 }, // Column
+      { wch: 10 }, // Required
+      { wch: 60 }, // Description
+    ]
+    XLSX.utils.book_append_sheet(workbook, instructionsSheet, 'Instructions')
+
+    XLSX.writeFile(workbook, 'product-import-template.xlsx')
+    toast.success('Template downloaded')
+  }
+
+  // Import products from Excel
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Reset file input
+    event.target.value = ''
+
+    // Helper to throttle API calls
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+    const API_DELAY = 100 // 100ms between API calls to avoid rate limiting
+
+    try {
+      setIsImporting(true)
+      setError(null)
+
+      const arrayBuffer = await file.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer)
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+      const jsonData = XLSX.utils.sheet_to_json<{
+        'Barcode': string
+        'SKU Code'?: string
+        'Product Name': string
+        'Type': string
+        'Price'?: number
+        'Bundle Components'?: string
+      }>(worksheet)
+
+      if (jsonData.length === 0) {
+        toast.error('No data found in the Excel file')
+        return
+      }
+
+      // Pre-fetch all existing products into a cache to reduce API calls
+      toast.info('Loading existing products...')
+      const productCache = new Map<string, { $id: string; name: string; sku_code: string | null; price: number; type: string }>()
+      const allProducts = await fetchAllProductsForExport()
+      for (const product of allProducts) {
+        productCache.set(product.barcode, {
+          $id: product.$id,
+          name: product.name,
+          sku_code: product.sku_code,
+          price: product.price,
+          type: product.type,
+        })
+      }
+
+      toast.info(`Processing ${jsonData.length} rows...`)
+
+      let imported = 0
+      let updated = 0
+      let skipped = 0
+      let failed = 0
+
+      // First pass: Import/update single products to build barcode->id map
+      const productMap = new Map<string, string>()
+      const bundlesToProcess: Array<{
+        barcode: string
+        sku_code?: string
+        name: string
+        price: number
+        components: string
+        existingId?: string
+      }> = []
+
+      // Copy existing product IDs to map
+      for (const [barcode, product] of productCache) {
+        productMap.set(barcode, product.$id)
+      }
+
+      for (const row of jsonData) {
+        if (!row['Barcode'] || !row['Product Name']) {
+          skipped++
+          continue
+        }
+
+        const barcode = String(row['Barcode']).trim()
+        const type = (row['Type'] || 'Single').toLowerCase()
+        const skuCode = row['SKU Code'] ? String(row['SKU Code']).trim() : undefined
+        const name = String(row['Product Name']).trim()
+        const price = Number(row['Price']) || 0
+        const components = row['Bundle Components'] || ''
+
+        // Check cache for existing product
+        const existing = productCache.get(barcode)
+
+        if (type === 'bundle') {
+          bundlesToProcess.push({
+            barcode,
+            sku_code: skuCode,
+            name,
+            price,
+            components,
+            existingId: existing?.$id,
+          })
+        } else {
+          if (existing) {
+            // Check if values changed
+            const hasChanges =
+              existing.name !== name ||
+              existing.sku_code !== (skuCode || null) ||
+              existing.price !== price
+
+            if (hasChanges) {
+              try {
+                await delay(API_DELAY)
+                await productService.update(existing.$id, {
+                  sku_code: skuCode,
+                  name,
+                  price,
+                })
+                productCache.set(barcode, { ...existing, name, sku_code: skuCode || null, price })
+                updated++
+              } catch {
+                failed++
+              }
+            } else {
+              skipped++
+            }
+          } else {
+            try {
+              await delay(API_DELAY)
+              const newProduct = await productService.create({
+                barcode,
+                sku_code: skuCode,
+                name,
+                type: 'single',
+                price,
+              })
+              productMap.set(barcode, newProduct.$id)
+              productCache.set(barcode, {
+                $id: newProduct.$id,
+                name,
+                sku_code: skuCode || null,
+                price,
+                type: 'single',
+              })
+              imported++
+            } catch {
+              failed++
+            }
+          }
+        }
+      }
+
+      // Second pass: Import/update bundles with components
+      for (const bundle of bundlesToProcess) {
+        try {
+          let bundleId: string
+
+          if (bundle.existingId) {
+            // Update existing bundle
+            const existing = productCache.get(bundle.barcode)
+            const hasChanges = existing && (
+              existing.name !== bundle.name ||
+              existing.sku_code !== (bundle.sku_code || null) ||
+              existing.price !== bundle.price
+            )
+
+            if (hasChanges) {
+              await delay(API_DELAY)
+              await productService.update(bundle.existingId, {
+                sku_code: bundle.sku_code,
+                name: bundle.name,
+                price: bundle.price,
+              })
+            }
+            bundleId = bundle.existingId
+
+            // Remove existing components with throttling
+            await productComponentService.deleteAllForParent(bundleId, API_DELAY)
+            updated++
+          } else {
+            // Create new bundle
+            await delay(API_DELAY)
+            const newBundle = await productService.create({
+              barcode: bundle.barcode,
+              sku_code: bundle.sku_code,
+              name: bundle.name,
+              type: 'bundle',
+              price: bundle.price,
+            })
+            bundleId = newBundle.$id
+            productMap.set(bundle.barcode, bundleId)
+            imported++
+          }
+
+          // Add components with throttling
+          if (bundle.components) {
+            const componentParts = bundle.components.split(',')
+            for (const part of componentParts) {
+              const [componentBarcode, qtyStr] = part.trim().split(':')
+              if (componentBarcode) {
+                const componentId = productMap.get(componentBarcode.trim())
+
+                if (componentId) {
+                  await delay(API_DELAY)
+                  await productComponentService.create({
+                    parent_product_id: bundleId,
+                    child_product_id: componentId,
+                    quantity: parseInt(qtyStr) || 1,
+                  })
+                }
+              }
+            }
+          }
+        } catch {
+          failed++
+        }
+      }
+
+      toast.success(`Import complete: ${imported} imported, ${updated} updated, ${skipped} skipped, ${failed} failed`)
+
+      // Refresh the products list
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+    } catch (err) {
+      console.error('Import error:', err)
+      toast.error('Failed to import products')
+    } finally {
+      setIsImporting(false)
     }
   }
 
@@ -379,6 +664,34 @@ export default function Products() {
           </p>
         </div>
         <div className="flex gap-2 self-end sm:self-auto">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={handleImport}
+            className="hidden"
+          />
+          <Button
+            variant="outline"
+            onClick={handleDownloadTemplate}
+            disabled={isImporting}
+            title="Download import template"
+          >
+            <Download className="mr-2 size-4" />
+            Template
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting || isLoading}
+          >
+            {isImporting ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <FileUp className="mr-2 size-4" />
+            )}
+            Import
+          </Button>
           <Button
             variant="outline"
             onClick={handleExport}
