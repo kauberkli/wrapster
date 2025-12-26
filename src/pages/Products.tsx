@@ -6,6 +6,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from '@tanstack/react-table'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import * as XLSX from 'xlsx'
 
 import {
@@ -69,9 +70,10 @@ export default function Products() {
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<ProductType | 'all'>('all')
 
-  // Infinite scroll
+  // Infinite scroll & virtualization
   const PAGE_SIZE = 50
-  const sentinelRef = useRef<HTMLTableRowElement>(null)
+  const ROW_HEIGHT = 53 // Approximate height of each table row in pixels
+  const tableContainerRef = useRef<HTMLDivElement>(null)
 
   const fetchProducts = useCallback(async () => {
     try {
@@ -116,23 +118,6 @@ export default function Products() {
     fetchProducts()
   }, [fetchProducts])
 
-  // Intersection Observer for infinite scroll
-  useEffect(() => {
-    const sentinel = sentinelRef.current
-    if (!sentinel) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading && !isLoadingMore) {
-          loadMore()
-        }
-      },
-      { threshold: 0.1 }
-    )
-
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [hasMore, isLoading, isLoadingMore, loadMore])
 
   const handleCreate = () => {
     setSelectedProduct(null)
@@ -403,6 +388,35 @@ export default function Products() {
     getCoreRowModel: getCoreRowModel(),
   })
 
+  const { rows } = table.getRowModel()
+
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  })
+
+  const virtualRows = rowVirtualizer.getVirtualItems()
+  const totalSize = rowVirtualizer.getTotalSize()
+
+  // Trigger loadMore when scrolling near the end
+  useEffect(() => {
+    const container = tableContainerRef.current
+    if (!container || isLoading || isLoadingMore || !hasMore) return
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container
+      // Load more when user is within 200px of the bottom
+      if (scrollHeight - scrollTop - clientHeight < 200) {
+        loadMore()
+      }
+    }
+
+    container.addEventListener('scroll', handleScroll)
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [hasMore, isLoading, isLoadingMore, loadMore])
+
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden">
       <div className="flex shrink-0 flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -463,7 +477,7 @@ export default function Products() {
         </Select>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border">
+      <div ref={tableContainerRef} className="min-h-0 flex-1 overflow-auto rounded-md border">
         <Table className="min-w-[600px]">
           <TableHeader className="bg-muted/50 sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -481,14 +495,14 @@ export default function Products() {
               </TableRow>
             ))}
           </TableHeader>
-            <TableBody>
+          <TableBody>
             {isLoading ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center">
                   Loading products...
                 </TableCell>
               </TableRow>
-            ) : table.getRowModel().rows.length === 0 ? (
+            ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center">
                   <div className="flex flex-col items-center gap-2">
@@ -508,22 +522,33 @@ export default function Products() {
               </TableRow>
             ) : (
               <>
-                {table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        style={{ width: cell.column.getSize() !== 150 ? cell.column.getSize() : undefined }}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-                {/* Sentinel row for infinite scroll */}
-                <TableRow ref={sentinelRef} className="h-1">
-                  <TableCell colSpan={columns.length} className="p-0" />
-                </TableRow>
+                {/* Top padding row for virtual scroll */}
+                {virtualRows.length > 0 && virtualRows[0].start > 0 && (
+                  <tr style={{ height: virtualRows[0].start }} />
+                )}
+                {virtualRows.map((virtualRow) => {
+                  const row = rows[virtualRow.index]
+                  return (
+                    <TableRow
+                      key={row.id}
+                      data-index={virtualRow.index}
+                      style={{ height: ROW_HEIGHT }}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          style={{ width: cell.column.getSize() !== 150 ? cell.column.getSize() : undefined }}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  )
+                })}
+                {/* Bottom padding row for virtual scroll */}
+                {virtualRows.length > 0 && (
+                  <tr style={{ height: totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0) }} />
+                )}
                 {/* Loading more indicator */}
                 {isLoadingMore && (
                   <TableRow>
@@ -539,7 +564,7 @@ export default function Products() {
                 )}
               </>
             )}
-            </TableBody>
+          </TableBody>
         </Table>
       </div>
 
