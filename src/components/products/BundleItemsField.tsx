@@ -49,7 +49,6 @@ export function BundleItemsField({
               <ProductCombobox
                 value={productId}
                 onSelect={(id) => handleSelect(index, id)}
-                disabledProductIds={value.filter((_, i) => i !== index)}
                 disabled={disabled}
               />
             </div>
@@ -70,7 +69,6 @@ export function BundleItemsField({
             <ProductCombobox
               value={undefined}
               onSelect={(id) => handleSelect(value.length, id)}
-              disabledProductIds={value}
               disabled={disabled}
               placeholder={t('productForm.addProductToBundle')}
             />

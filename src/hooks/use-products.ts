@@ -58,6 +58,15 @@ interface CreateProductInput {
   bundleItems?: string[]
 }
 
+// Helper to aggregate bundle items by product ID and count quantities
+function aggregateBundleItems(bundleItems: string[]): Map<string, number> {
+  const aggregated = new Map<string, number>()
+  for (const productId of bundleItems) {
+    aggregated.set(productId, (aggregated.get(productId) || 0) + 1)
+  }
+  return aggregated
+}
+
 export function useCreateProduct() {
   const queryClient = useQueryClient()
 
@@ -72,13 +81,14 @@ export function useCreateProduct() {
         stock_quantity: data.stock_quantity,
       })
 
-      // Handle bundle components
+      // Handle bundle components (aggregate duplicates into quantity)
       if (data.type === 'bundle' && data.bundleItems) {
-        for (const childProductId of data.bundleItems) {
+        const aggregated = aggregateBundleItems(data.bundleItems)
+        for (const [childProductId, quantity] of aggregated) {
           await productComponentService.create({
             parent_product_id: newProduct.$id,
             child_product_id: childProductId,
-            quantity: 1,
+            quantity,
           })
         }
       }
@@ -106,6 +116,9 @@ export function useCreateProduct() {
 
         return { ...oldData, pages: newPages }
       })
+
+      // Invalidate cache to ensure fresh data on next fetch (for other modules like Packaging)
+      queryClient.invalidateQueries({ queryKey: [PRODUCTS_QUERY_KEY] })
     },
   })
 }
@@ -135,15 +148,16 @@ export function useUpdateProduct() {
         stock_quantity: data.stock_quantity,
       })
 
-      // Handle bundle components
+      // Handle bundle components (aggregate duplicates into quantity)
       if (data.type === 'bundle') {
         await productComponentService.deleteAllForParent(productId)
         if (data.bundleItems) {
-          for (const childProductId of data.bundleItems) {
+          const aggregated = aggregateBundleItems(data.bundleItems)
+          for (const [childProductId, quantity] of aggregated) {
             await productComponentService.create({
               parent_product_id: productId,
               child_product_id: childProductId,
-              quantity: 1,
+              quantity,
             })
           }
         }

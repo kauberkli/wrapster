@@ -21,6 +21,7 @@ interface ProductRow {
   "Product Name": string;
   Type: string;
   Cost?: number;
+  "Stock Quantity"?: number;
   "Bundle Components"?: string;
 }
 
@@ -29,6 +30,7 @@ interface CachedProduct {
   name: string;
   sku_code: string | null;
   cost: number;
+  stock_quantity: number;
   type: string;
 }
 
@@ -105,6 +107,7 @@ async function fetchAllProducts(databases: Databases): Promise<Map<string, Cache
         name: doc.name as string,
         sku_code: doc.sku_code as string | null,
         cost: doc.cost as number,
+        stock_quantity: (doc.stock_quantity as number) ?? 0,
         type: doc.type as string,
       });
     }
@@ -183,6 +186,7 @@ export const productImportTask = task({
         sku_code?: string;
         name: string;
         cost: number;
+        stock_quantity: number;
         components: string;
         existingId?: string;
       }> = [];
@@ -199,6 +203,7 @@ export const productImportTask = task({
         const skuCode = row["SKU Code"] ? String(row["SKU Code"]).trim() : undefined;
         const name = String(row["Product Name"]).trim();
         const cost = Number(row.Cost) || 0;
+        const stockQuantity = Number(row["Stock Quantity"]) || 0;
         const components = row["Bundle Components"] || "";
 
         const existing = productCache.get(barcode);
@@ -209,6 +214,7 @@ export const productImportTask = task({
             sku_code: skuCode,
             name,
             cost,
+            stock_quantity: stockQuantity,
             components,
             existingId: existing?.$id,
           });
@@ -217,7 +223,8 @@ export const productImportTask = task({
             const hasChanges =
               existing.name !== name ||
               existing.sku_code !== (skuCode || null) ||
-              existing.cost !== cost;
+              existing.cost !== cost ||
+              existing.stock_quantity !== stockQuantity;
 
             if (hasChanges) {
               try {
@@ -226,8 +233,9 @@ export const productImportTask = task({
                   sku_code: skuCode || null,
                   name,
                   cost,
+                  stock_quantity: stockQuantity,
                 });
-                productCache.set(barcode, { ...existing, name, sku_code: skuCode || null, cost });
+                productCache.set(barcode, { ...existing, name, sku_code: skuCode || null, cost, stock_quantity: stockQuantity });
                 stats.updated++;
               } catch (err) {
                 logger.error("Failed to update product", { barcode, error: err });
@@ -249,6 +257,7 @@ export const productImportTask = task({
                   name,
                   type: "single",
                   cost,
+                  stock_quantity: stockQuantity,
                 }
               );
               productMap.set(barcode, newProduct.$id);
@@ -257,6 +266,7 @@ export const productImportTask = task({
                 name,
                 sku_code: skuCode || null,
                 cost,
+                stock_quantity: stockQuantity,
                 type: "single",
               });
               stats.imported++;
@@ -279,7 +289,8 @@ export const productImportTask = task({
               existing &&
               (existing.name !== bundle.name ||
                 existing.sku_code !== (bundle.sku_code || null) ||
-                existing.cost !== bundle.cost);
+                existing.cost !== bundle.cost ||
+                existing.stock_quantity !== bundle.stock_quantity);
 
             if (hasChanges) {
               await delay(API_DELAY);
@@ -287,6 +298,7 @@ export const productImportTask = task({
                 sku_code: bundle.sku_code || null,
                 name: bundle.name,
                 cost: bundle.cost,
+                stock_quantity: bundle.stock_quantity,
               });
             }
             bundleId = bundle.existingId;
@@ -316,6 +328,7 @@ export const productImportTask = task({
                 name: bundle.name,
                 type: "bundle",
                 cost: bundle.cost,
+                stock_quantity: bundle.stock_quantity,
               }
             );
             bundleId = newBundle.$id;

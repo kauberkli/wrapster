@@ -147,8 +147,8 @@ export default function Packaging() {
   const [localStock, setLocalStock] = useState<Map<string, number>>(new Map())
 
   // Product search state
-  const [allProducts, setAllProducts] = useState<Product[]>([])
-  const [isLoadingProducts, setIsLoadingProducts] = useState(false)
+  const [searchResults, setSearchResults] = useState<Product[]>([])
+  const [isSearchingProducts, setIsSearchingProducts] = useState(false)
   const [productPopoverOpen, setProductPopoverOpen] = useState(false)
 
   // Helper: Get available stock for a product (checks localStock first, then original)
@@ -302,20 +302,24 @@ export default function Packaging() {
     }
   }, [selectedDate])
 
-  // Fetch all products for search
-  const fetchAllProducts = useCallback(async () => {
-    if (allProducts.length > 0 || isLoadingProducts) return
+  // Search products based on input
+  const searchProducts = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([])
+      return
+    }
 
     try {
-      setIsLoadingProducts(true)
-      const result = await productService.list({ limit: 500 })
-      setAllProducts(result.documents)
+      setIsSearchingProducts(true)
+      const result = await productService.list({ search: query, limit: 10 })
+      setSearchResults(result.documents)
     } catch (err) {
-      console.error('Error fetching products:', err)
+      console.error('Error searching products:', err)
+      setSearchResults([])
     } finally {
-      setIsLoadingProducts(false)
+      setIsSearchingProducts(false)
     }
-  }, [allProducts.length, isLoadingProducts])
+  }, [])
 
   // Load records when date changes
   useEffect(() => {
@@ -327,24 +331,15 @@ export default function Packaging() {
     fetchRecords()
   }, [fetchRecords])
 
-  // Load products when popover opens or waybill is set
+  // Search products when input changes
   useEffect(() => {
-    if ((productPopoverOpen || currentWaybill) && allProducts.length === 0) {
-      fetchAllProducts()
+    if (productPopoverOpen && productInput.trim()) {
+      searchProducts(productInput)
+    } else {
+      setSearchResults([])
     }
-  }, [productPopoverOpen, currentWaybill, allProducts.length, fetchAllProducts])
+  }, [productPopoverOpen, productInput, searchProducts])
 
-  // Filter products based on input
-  const filteredProducts = useMemo(() => {
-    if (!productInput.trim()) return allProducts
-    const query = productInput.toLowerCase()
-    return allProducts.filter(
-      (product) =>
-        product.barcode.toLowerCase().includes(query) ||
-        product.name?.toLowerCase().includes(query) ||
-        product.sku_code?.toLowerCase().includes(query)
-    )
-  }, [allProducts, productInput])
 
   // Focus management - focus waybill input on mount
   useEffect(() => {
@@ -1024,15 +1019,15 @@ export default function Packaging() {
                         >
                           <Command shouldFilter={false}>
                             <CommandList>
-                              {isLoadingProducts ? (
+                              {isSearchingProducts ? (
                                 <div className="py-6 text-center text-sm">
                                   <Loader2 className="mx-auto size-4 animate-spin" />
                                 </div>
-                              ) : filteredProducts.length === 0 ? (
+                              ) : searchResults.length === 0 ? (
                                 <CommandEmpty>No products found.</CommandEmpty>
                               ) : (
                                 <CommandGroup>
-                                  {filteredProducts.slice(0, 10).map((product) => (
+                                  {searchResults.map((product) => (
                                     <CommandItem
                                       key={product.$id}
                                       value={product.$id}
@@ -1047,11 +1042,6 @@ export default function Packaging() {
                                       </div>
                                     </CommandItem>
                                   ))}
-                                  {filteredProducts.length > 10 && (
-                                    <div className="text-muted-foreground py-2 text-center text-xs">
-                                      {filteredProducts.length - 10} more results...
-                                    </div>
-                                  )}
                                 </CommandGroup>
                               )}
                             </CommandList>
@@ -1301,8 +1291,9 @@ export default function Packaging() {
                         <span className="font-medium">{item.name}</span>
                         <span className="text-muted-foreground ml-2 font-mono text-xs">({item.barcode})</span>
                       </div>
-                      <div className="text-destructive font-medium">
-                        {t('packaging.stockRequired', { required: item.required, available: item.available })}
+                      <div className="text-destructive font-medium text-right">
+                        <div>{t('packaging.stockRequired')}: {item.required}</div>
+                        <div>{t('packaging.stockAvailable')}: {item.available}</div>
                       </div>
                     </div>
                   ))}

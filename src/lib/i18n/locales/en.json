@@ -109,7 +109,8 @@
     "stock": "Stock",
     "insufficientStockTitle": "Insufficient Stock",
     "insufficientStockMessage": "The following products do not have enough stock to complete this packaging record:",
-    "stockRequired": "Need {{required}}, have {{available}}",
+    "stockRequired": "Required",
+    "stockAvailable": "Available",
     "stockDeductionError": "Warning: Stock levels may not have been updated correctly",
     "stockRestoreError": "Warning: Stock levels may not have been restored correctly"
   },

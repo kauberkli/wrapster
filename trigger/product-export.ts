@@ -107,6 +107,7 @@ export const productExportTask = task({
         name: string;
         type: string;
         cost: number;
+        stock_quantity: number;
         $createdAt: string;
       }> = [];
 
@@ -128,6 +129,7 @@ export const productExportTask = task({
             name: doc.name as string,
             type: doc.type as string,
             cost: doc.cost as number,
+            stock_quantity: (doc.stock_quantity as number) ?? 0,
             $createdAt: doc.$createdAt,
           });
         }
@@ -150,6 +152,7 @@ export const productExportTask = task({
         "Product Name": product.name,
         Type: product.type === "bundle" ? "Bundle" : "Single",
         Cost: product.cost,
+        "Stock Quantity": product.type === "bundle" ? "" : product.stock_quantity,
         "Created At": new Date(product.$createdAt).toLocaleString(),
       }));
 
@@ -164,6 +167,7 @@ export const productExportTask = task({
         { wch: 30 }, // Product Name
         { wch: 10 }, // Type
         { wch: 12 }, // Cost
+        { wch: 15 }, // Stock Quantity
         { wch: 20 }, // Created At
       ];
 

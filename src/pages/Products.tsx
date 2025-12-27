@@ -189,6 +189,7 @@ export default function Products() {
         'Product Name': product.name,
         'Type': product.type === 'bundle' ? 'Bundle' : 'Single',
         'Cost': product.cost,
+        'Stock Quantity': product.type === 'bundle' ? '' : (product.stock_quantity ?? 0),
         'Created At': new Date(product.$createdAt).toLocaleString(),
       }))
 
@@ -203,6 +204,7 @@ export default function Products() {
         { wch: 30 },  // Product Name
         { wch: 10 },  // Type
         { wch: 12 },  // Cost
+        { wch: 15 },  // Stock Quantity
         { wch: 20 },  // Created At
       ]
 
@@ -252,6 +254,7 @@ export default function Products() {
         'Product Name': 'Sample Single Product',
         'Type': 'Single',
         'Cost': 9.99,
+        'Stock Quantity': 100,
         'Bundle Components': '',
       },
       {
@@ -260,6 +263,7 @@ export default function Products() {
         'Product Name': 'Sample Bundle Product',
         'Type': 'Bundle',
         'Cost': 29.99,
+        'Stock Quantity': '',
         'Bundle Components': '1234567890123:2,ANOTHER-BARCODE:1',
       },
     ]
@@ -270,6 +274,7 @@ export default function Products() {
       { 'Column': 'Product Name', 'Required': 'Yes', 'Description': 'Name of the product' },
       { 'Column': 'Type', 'Required': 'Yes', 'Description': 'Either "Single" or "Bundle"' },
       { 'Column': 'Cost', 'Required': 'No', 'Description': 'Product cost (defaults to 0)' },
+      { 'Column': 'Stock Quantity', 'Required': 'No', 'Description': 'Stock quantity for single products (defaults to 0, ignored for bundles)' },
       { 'Column': 'Bundle Components', 'Required': 'No', 'Description': 'For bundles: comma-separated list of BARCODE:QUANTITY pairs (e.g., "ABC123:2,DEF456:1")' },
     ]
 
@@ -283,6 +288,7 @@ export default function Products() {
       { wch: 30 }, // Product Name
       { wch: 10 }, // Type
       { wch: 10 }, // Cost
+      { wch: 15 }, // Stock Quantity
       { wch: 40 }, // Bundle Components
     ]
     XLSX.utils.book_append_sheet(workbook, productsSheet, 'Products')
@@ -345,6 +351,7 @@ export default function Products() {
         'Product Name': string
         'Type': string
         'Cost'?: number
+        'Stock Quantity'?: number
         'Bundle Components'?: string
       }>(worksheet)
 
@@ -355,7 +362,7 @@ export default function Products() {
 
       // Pre-fetch all existing products into a cache to reduce API calls
       toast.info(t('products.loadingProducts'))
-      const productCache = new Map<string, { $id: string; name: string; sku_code: string | null; cost: number; type: string }>()
+      const productCache = new Map<string, { $id: string; name: string; sku_code: string | null; cost: number; stock_quantity: number; type: string }>()
       const allProducts = await fetchAllProductsForExport()
       for (const product of allProducts) {
         productCache.set(product.barcode, {
@@ -363,6 +370,7 @@ export default function Products() {
           name: product.name,
           sku_code: product.sku_code,
           cost: product.cost,
+          stock_quantity: product.stock_quantity ?? 0,
           type: product.type,
         })
       }
@@ -381,6 +389,7 @@ export default function Products() {
         sku_code?: string
         name: string
         cost: number
+        stock_quantity: number
         components: string
         existingId?: string
       }> = []
@@ -401,6 +410,7 @@ export default function Products() {
         const skuCode = row['SKU Code'] ? String(row['SKU Code']).trim() : undefined
         const name = String(row['Product Name']).trim()
         const cost = Number(row['Cost']) || 0
+        const stockQuantity = Number(row['Stock Quantity']) || 0
         const components = row['Bundle Components'] || ''
 
         // Check cache for existing product
@@ -412,6 +422,7 @@ export default function Products() {
             sku_code: skuCode,
             name,
             cost,
+            stock_quantity: stockQuantity,
             components,
             existingId: existing?.$id,
           })
@@ -421,7 +432,8 @@ export default function Products() {
             const hasChanges =
               existing.name !== name ||
               existing.sku_code !== (skuCode || null) ||
-              existing.cost !== cost
+              existing.cost !== cost ||
+              existing.stock_quantity !== stockQuantity
 
             if (hasChanges) {
               try {
@@ -430,8 +442,9 @@ export default function Products() {
                   sku_code: skuCode,
                   name,
                   cost,
+                  stock_quantity: stockQuantity,
                 })
-                productCache.set(barcode, { ...existing, name, sku_code: skuCode || null, cost })
+                productCache.set(barcode, { ...existing, name, sku_code: skuCode || null, cost, stock_quantity: stockQuantity })
                 updated++
               } catch {
                 failed++
@@ -448,6 +461,7 @@ export default function Products() {
                 name,
                 type: 'single',
                 cost,
+                stock_quantity: stockQuantity,
               })
               productMap.set(barcode, newProduct.$id)
               productCache.set(barcode, {
@@ -455,6 +469,7 @@ export default function Products() {
                 name,
                 sku_code: skuCode || null,
                 cost,
+                stock_quantity: stockQuantity,
                 type: 'single',
               })
               imported++
@@ -476,7 +491,8 @@ export default function Products() {
             const hasChanges = existing && (
               existing.name !== bundle.name ||
               existing.sku_code !== (bundle.sku_code || null) ||
-              existing.cost !== bundle.cost
+              existing.cost !== bundle.cost ||
+              existing.stock_quantity !== bundle.stock_quantity
             )
 
             if (hasChanges) {
@@ -485,6 +501,7 @@ export default function Products() {
                 sku_code: bundle.sku_code,
                 name: bundle.name,
                 cost: bundle.cost,
+                stock_quantity: bundle.stock_quantity,
               })
             }
             bundleId = bundle.existingId
@@ -501,6 +518,7 @@ export default function Products() {
               name: bundle.name,
               type: 'bundle',
               cost: bundle.cost,
+              stock_quantity: bundle.stock_quantity,
             })
             bundleId = newBundle.$id
             productMap.set(bundle.barcode, bundleId)
@@ -549,7 +567,14 @@ export default function Products() {
     if (product.type === 'bundle') {
       try {
         const components = await productComponentService.getByParentId(product.$id)
-        setInitialBundleItems(components.map((c) => c.child_product_id))
+        // Expand components based on quantity (e.g., quantity=3 means 3 entries)
+        const expandedItems: string[] = []
+        for (const component of components) {
+          for (let i = 0; i < component.quantity; i++) {
+            expandedItems.push(component.child_product_id)
+          }
+        }
+        setInitialBundleItems(expandedItems)
       } catch (err) {
         console.error('Error fetching bundle components:', err)
         setInitialBundleItems([])
@@ -1115,7 +1140,7 @@ export default function Products() {
       )}
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {selectedProduct ? t('products.editProduct') : t('products.addProduct')}

@@ -109,7 +109,8 @@
     "stock": "库存",
     "insufficientStockTitle": "库存不足",
     "insufficientStockMessage": "以下产品的库存不足以完成此包装记录：",
-    "stockRequired": "需要 {{required}}，可用 {{available}}",
+    "stockRequired": "需求",
+    "stockAvailable": "库存",
     "stockDeductionError": "警告：库存数量可能未正确更新",
     "stockRestoreError": "警告：库存数量可能未正确恢复"
   },
