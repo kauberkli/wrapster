@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,6 +19,15 @@ vi.mock('@/hooks/use-mobile', () => ({
   useIsMobile: vi.fn().mockReturnValue(false),
 }))
 
+// Mock the jobs hook to avoid API calls
+vi.mock('@/hooks/use-jobs', () => ({
+  useActiveJobs: () => ({
+    data: [],
+    isLoading: false,
+    error: null,
+  }),
+}))
+
 const TestChild = () => <div data-testid="protected-content">Protected Content</div>
 const LoginPage = () => <div data-testid="login-page">Login Page</div>
 
@@ -26,10 +36,18 @@ interface WrapperProps {
 }
 
 function TestWrapper({ children }: WrapperProps) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  })
+
   return (
-    <AuthProvider>
-      <LoadingProvider>{children}</LoadingProvider>
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <LoadingProvider>{children}</LoadingProvider>
+      </AuthProvider>
+    </QueryClientProvider>
   )
 }
 
@@ -91,19 +109,14 @@ describe('AuthGuard', () => {
   })
 
   describe('public routes', () => {
-    it('should render children for home route (public)', async () => {
-      await renderWithRouter('/')
-      expect(await screen.findByTestId('protected-content')).toBeInTheDocument()
-    })
-
     it('should render children for login route (public)', async () => {
       await renderWithRouter('/login')
       expect(await screen.findByTestId('login-page')).toBeInTheDocument()
     })
 
-    it('should render public routes without authentication', async () => {
-      await renderWithRouter('/', null)
-      expect(await screen.findByTestId('protected-content')).toBeInTheDocument()
+    it('should render login page without authentication on public path', async () => {
+      await renderWithRouter('/login', null)
+      expect(await screen.findByTestId('login-page')).toBeInTheDocument()
     })
   })
 

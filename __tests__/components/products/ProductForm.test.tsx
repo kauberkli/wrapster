@@ -8,6 +8,59 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProductForm } from '@/components/products/ProductForm'
 import type { Product } from '@/types/product'
 
+// Mock react-i18next
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => {
+      const translations: Record<string, string> = {
+        'products.form.barcode': 'Barcode',
+        'products.form.barcodeFormat': 'EAN-13 format (13 digits)',
+        'products.form.barcodePlaceholder': 'Enter barcode',
+        'products.form.barcodeRequired': 'Barcode is required',
+        'products.form.barcodeInvalid': 'Invalid barcode format',
+        'products.form.sku': 'SKU Code',
+        'products.form.skuOptional': 'Optional',
+        'products.form.name': 'Product Name',
+        'products.form.namePlaceholder': 'Enter product name',
+        'products.form.nameRequired': 'Product name is required',
+        'products.form.type': 'Type',
+        'products.form.typeSingle': 'Single Item',
+        'products.form.typeBundle': 'Bundle',
+        'products.form.cost': 'Cost',
+        'products.form.create': 'Create',
+        'products.form.update': 'Update',
+        'products.form.saving': 'Saving...',
+        'products.form.cancel': 'Cancel',
+      }
+      return translations[key] || key
+    },
+  }),
+}))
+
+// Mock the Barcode component (uses canvas which is not available in JSDOM)
+vi.mock('@/components/ui/barcode', () => ({
+  Barcode: ({ value }: { value: string }) => <div data-testid="barcode-preview">{value}</div>,
+}))
+
+// Mock the Select component to avoid Radix UI infinite loop issue in JSDOM
+vi.mock('@/components/ui/select', () => ({
+  Select: ({ children }: { value: string; onValueChange: (v: string) => void; children: React.ReactNode }) => (
+    <div data-testid="select-wrapper">{children}</div>
+  ),
+  SelectTrigger: ({ children, ...props }: { children: React.ReactNode }) => (
+    <button data-testid="select-trigger" {...props}>{children}</button>
+  ),
+  SelectValue: ({ placeholder }: { placeholder?: string }) => (
+    <span data-testid="select-value">{placeholder}</span>
+  ),
+  SelectContent: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="select-content">{children}</div>
+  ),
+  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+    <div data-testid={`select-item-${value}`}>{children}</div>
+  ),
+}))
+
 interface WrapperProps {
   children: ReactNode
 }

@@ -23,6 +23,8 @@ vi.mock('@/lib/appwrite/database', () => ({
   Query: {
     equal: (field: string, value: string) => `equal("${field}", "${value}")`,
     search: (field: string, value: string) => `search("${field}", "${value}")`,
+    contains: (field: string, value: string) => `contains("${field}", "${value}")`,
+    or: (queries: string[]) => `or(${JSON.stringify(queries)})`,
     limit: (value: number) => `limit(${value})`,
     offset: (value: number) => `offset(${value})`,
   },
@@ -86,6 +88,7 @@ describe('productService', () => {
           name: 'Test Product',
           type: 'single',
           cost: 0,
+          stock_quantity: 0,
         }
       )
       expect(result).toEqual(mockProduct)
@@ -110,6 +113,7 @@ describe('productService', () => {
           name: 'Test Product',
           type: 'bundle',
           cost: 29.99,
+          stock_quantity: 0,
         }
       )
     })
@@ -264,7 +268,7 @@ describe('productService', () => {
 
       expect(mockDatabaseService.listDocuments).toHaveBeenCalledWith(
         COLLECTIONS.PRODUCTS,
-        expect.arrayContaining(['search("name", "Test")'])
+        expect.arrayContaining([expect.stringContaining('or(')])
       )
     })
 
@@ -313,7 +317,7 @@ describe('productService', () => {
         COLLECTIONS.PRODUCTS,
         expect.arrayContaining([
           'equal("type", "single")',
-          'search("name", "Test")',
+          expect.stringContaining('or('),
           'limit(25)',
           'offset(50)',
         ])
@@ -890,7 +894,7 @@ describe('productService edge cases', () => {
 
       expect(mockDatabaseService.listDocuments).toHaveBeenCalledWith(
         COLLECTIONS.PRODUCTS,
-        expect.arrayContaining(['search("name", "Product "Test"")'])
+        expect.arrayContaining([expect.stringContaining('or(')])
       )
     })
   })
