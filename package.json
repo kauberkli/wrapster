@@ -1,38 +1,5 @@
 {
-  "name": "wrapster",
-  "private": true,
-  "version": "1.0.0",
-  "description": "A packaging tracking application that scans waybills and product barcodes, tracks packaging details, and exports reports to PDF or Excel",
-  "type": "module",
-  "keywords": [
-    "packaging",
-    "tracking",
-    "waybill",
-    "barcode",
-    "scanner",
-    "inventory",
-    "pdf-export",
-    "excel-export",
-    "reporting"
-  ],
   "author": "",
-  "license": "ISC",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
-    "test": "vitest",
-    "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "db:migrate": "tsx scripts/migrate-products.ts",
-    "db:migrate:packaging": "tsx scripts/migrate-packaging.ts",
-    "db:seed": "tsx scripts/seed-products.ts",
-    "db:seed:packaging": "tsx scripts/seed-packaging.ts",
-    "db:reset": "tsx scripts/reset-database.ts"
-  },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -47,6 +14,7 @@
     "@tanstack/react-query": "^5.90.12",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.13",
+    "@trigger.dev/sdk": "4.3.1",
     "appwrite": "^21.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -70,6 +38,7 @@
     "xlsx": "^0.18.5",
     "zod": "^4.2.1"
   },
+  "description": "A packaging tracking application that scans waybills and product barcodes, tracks packaging details, and exports reports to PDF or Excel",
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.52.0",
@@ -97,5 +66,38 @@
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
     "vitest": "^3.2.4"
-  }
+  },
+  "keywords": [
+    "packaging",
+    "tracking",
+    "waybill",
+    "barcode",
+    "scanner",
+    "inventory",
+    "pdf-export",
+    "excel-export",
+    "reporting"
+  ],
+  "license": "ISC",
+  "name": "wrapster",
+  "private": true,
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "db:migrate": "tsx scripts/migrate-database.ts",
+    "db:reset": "tsx scripts/reset-database.ts",
+    "db:seed": "tsx scripts/seed-products.ts",
+    "db:seed:packaging": "tsx scripts/seed-packaging.ts",
+    "dev": "vite",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:run": "vitest run",
+    "trigger:deploy": "npx trigger.dev@latest deploy",
+    "trigger:dev": "npx trigger.dev@latest dev"
+  },
+  "type": "module",
+  "version": "1.0.0"
 }

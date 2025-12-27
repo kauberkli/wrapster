@@ -1,0 +1,27 @@
+{
+  "endpoint": "https://sgp.cloud.appwrite.io/v1",
+  "projectId": "694c240c0038e788d797",
+  "projectName": "Wrapster",
+  "functions": [
+    {
+      "$id": "queue-product-job",
+      "name": "Queue Product Job",
+      "runtime": "node-18.0",
+      "execute": ["users"],
+      "events": [],
+      "schedule": "",
+      "timeout": 30,
+      "enabled": true,
+      "logging": true,
+      "entrypoint": "src/main.js",
+      "commands": "npm install",
+      "path": "functions/queue-product-job",
+      "scopes": [
+        "databases.read",
+        "databases.write",
+        "files.read",
+        "files.write"
+      ]
+    }
+  ]
+}

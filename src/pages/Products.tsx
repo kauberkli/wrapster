@@ -10,6 +10,7 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual'
 import * as XLSX from 'xlsx'
 
+import { JobStatusPanel } from '@/components/jobs/JobStatusPanel'
 import {
   ProductForm,
   type ProductFormValues,
@@ -48,7 +49,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useAuth } from '@/contexts/AuthContext'
 import { useDebounce } from '@/hooks/use-debounce'
+import { useActiveJobs, useQueueExport, useQueueImport } from '@/hooks/use-jobs'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   fetchAllProductsForExport,
@@ -63,6 +66,7 @@ import { toast } from 'sonner'
 
 export default function Products() {
   const { t } = useTranslation()
+  const { user } = useAuth()
 
   // Dialog states
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -71,8 +75,17 @@ export default function Products() {
   const [initialBundleItems, setInitialBundleItems] = useState<string[]>([])
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [useAsyncMode] = useState(true) // Async mode enabled by default
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Async job hooks
+  const queueImport = useQueueImport()
+  const queueExport = useQueueExport()
+  const { data: activeJobs = [], isLoading: isLoadingJobs } = useActiveJobs(
+    user?.$id || '',
+    !!user
+  )
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
@@ -114,6 +127,27 @@ export default function Products() {
   }
 
   const handleExport = async () => {
+    // Use async mode if enabled and user is logged in
+    if (useAsyncMode && user) {
+      try {
+        setIsExporting(true)
+        setError(null)
+
+        const filters = typeFilter !== 'all' ? { type: typeFilter } : undefined
+        await queueExport.mutateAsync({ userId: user.$id, filters })
+
+        toast.success(t('jobs.exportQueued'))
+      } catch (err) {
+        setError(t('products.exportError'))
+        console.error('Error queuing export:', err)
+        toast.error(t('products.exportError'))
+      } finally {
+        setIsExporting(false)
+      }
+      return
+    }
+
+    // Fallback to sync mode
     try {
       setIsExporting(true)
       setError(null)
@@ -228,6 +262,26 @@ export default function Products() {
     // Reset file input
     event.target.value = ''
 
+    // Use async mode if enabled and user is logged in
+    if (useAsyncMode && user) {
+      try {
+        setIsImporting(true)
+        setError(null)
+
+        await queueImport.mutateAsync({ file, userId: user.$id })
+
+        toast.success(t('jobs.importQueued'))
+      } catch (err) {
+        setError(t('products.importError'))
+        console.error('Error queuing import:', err)
+        toast.error(t('products.importError'))
+      } finally {
+        setIsImporting(false)
+      }
+      return
+    }
+
+    // Fallback to sync mode
     // Helper to throttle API calls
     const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
     const API_DELAY = 100 // 100ms between API calls to avoid rate limiting
@@ -718,6 +772,11 @@ export default function Products() {
         <div className="bg-destructive/10 text-destructive shrink-0 rounded-md p-3 text-sm">
           {error}
         </div>
+      )}
+
+      {/* Active Jobs Panel */}
+      {user && activeJobs.length > 0 && (
+        <JobStatusPanel jobs={activeJobs} isLoading={isLoadingJobs} />
       )}
 
       <div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-center">

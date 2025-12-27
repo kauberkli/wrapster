@@ -19,6 +19,7 @@
     "date": "Date",
     "draft": "Draft",
     "noData": "No data found",
+    "download": "Download",
     "language": "Language",
     "english": "English",
     "chinese": "Chinese"
@@ -29,6 +30,7 @@
     "packaging": "Packaging",
     "unpack": "Unpack",
     "reports": "Reports",
+    "jobs": "Jobs",
     "logout": "Logout"
   },
   "dashboard": {
@@ -115,7 +117,21 @@
     "selectDatesError": "Please select both start and end dates",
     "noRecordsError": "No records found for the selected date range",
     "exportSuccess": "Exported {{count}} items to {{filename}}",
-    "exportError": "Failed to export report"
+    "exportError": "Failed to export report",
+    "summary": "Summary",
+    "reportPeriod": "Report Period",
+    "totalRecords": "Total Records",
+    "totalItemsScanned": "Total Items Scanned",
+    "uniqueProducts": "Unique Products",
+    "generatedAt": "Generated At",
+    "metric": "Metric",
+    "value": "Value",
+    "dailySummary": "Daily Summary",
+    "records": "Records",
+    "itemsScanned": "Items Scanned",
+    "productQuantities": "Product Quantities",
+    "totalQty": "Total Qty",
+    "details": "Details"
   },
   "login": {
     "title": "Login",
@@ -146,5 +162,37 @@
     "saving": "Saving...",
     "update": "Update",
     "create": "Create"
+  },
+  "jobs": {
+    "title": "Background Jobs",
+    "subtitle": "View and manage your background tasks",
+    "loading": "Loading jobs...",
+    "activeJobs": "Active Jobs",
+    "backgroundJobs": "Background Jobs",
+    "import": "Import",
+    "export": "Export",
+    "reportExport": "Report Export",
+    "importQueued": "Import job queued. You'll be notified when it's complete.",
+    "exportQueued": "Export job queued. You'll be notified when it's ready.",
+    "reportExportQueued": "Report export queued. You'll be notified when it's ready.",
+    "startedAgo": "Started {{time}} ago",
+    "viewJobs": "View background jobs",
+    "jobsRunning": "{{count}} job(s) running",
+    "noActiveJobs": "No active jobs",
+    "recentJobs": "Recent Jobs",
+    "noJobs": "No jobs found",
+    "viewAllJobs": "View all jobs",
+    "jobsList": "Jobs List",
+    "showingJobs": "Showing {{count}} jobs",
+    "filterByAction": "Filter by action",
+    "filterByStatus": "Filter by status",
+    "allActions": "All Actions",
+    "allStatuses": "All Statuses",
+    "status": {
+      "pending": "Pending",
+      "processing": "Processing",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
   }
 }

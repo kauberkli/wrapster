@@ -479,14 +479,22 @@ export default function Packaging() {
           return
         }
 
-        // With items scanned - Enter always submits the record
+        // If focused on our input fields, let the input's onKeyDown handler process it
+        // This ensures manual keyboard input uses the full input value, not the partial buffer
+        // (Buffer may only contain last few chars if user typed slowly > 100ms between keys)
+        if (isWaybillField || isProductField) {
+          barcodeBuffer.current = ''  // Clear buffer to prevent interference
+          return  // Let input's onKeyDown handler take over
+        }
+
+        // With items scanned - Enter always submits the record (when not focused on input)
         if (currentWaybill && currentItems.length > 0 && barcodeBuffer.current.length === 0) {
           e.preventDefault()
           e.stopImmediatePropagation()
           handleCompleteWaybill()
           return
         } else if (barcodeBuffer.current.length > 0) {
-          // Barcode scan completed
+          // Barcode scan completed (scanner input while not focused on our fields)
           e.preventDefault()
           e.stopImmediatePropagation()
           const barcode = barcodeBuffer.current

@@ -19,6 +19,7 @@
     "date": "日期",
     "draft": "草稿",
     "noData": "没有数据",
+    "download": "下载",
     "language": "语言",
     "english": "英文",
     "chinese": "中文"
@@ -29,6 +30,7 @@
     "packaging": "包装",
     "unpack": "拆包",
     "reports": "报告",
+    "jobs": "任务",
     "logout": "退出"
   },
   "dashboard": {
@@ -115,7 +117,21 @@
     "selectDatesError": "请选择开始和结束日期",
     "noRecordsError": "所选日期范围内没有记录",
     "exportSuccess": "已导出 {{count}} 个项目到 {{filename}}",
-    "exportError": "导出报告失败"
+    "exportError": "导出报告失败",
+    "summary": "摘要",
+    "reportPeriod": "报告期间",
+    "totalRecords": "总记录数",
+    "totalItemsScanned": "扫描项目总数",
+    "uniqueProducts": "唯一产品数",
+    "generatedAt": "生成时间",
+    "metric": "指标",
+    "value": "数值",
+    "dailySummary": "每日汇总",
+    "records": "记录数",
+    "itemsScanned": "扫描项目",
+    "productQuantities": "产品数量",
+    "totalQty": "总数量",
+    "details": "详情"
   },
   "login": {
     "title": "登录",
@@ -146,5 +162,37 @@
     "saving": "保存中...",
     "update": "更新",
     "create": "创建"
+  },
+  "jobs": {
+    "title": "后台任务",
+    "subtitle": "查看和管理您的后台任务",
+    "loading": "加载任务中...",
+    "activeJobs": "活动任务",
+    "backgroundJobs": "后台任务",
+    "import": "导入",
+    "export": "导出",
+    "reportExport": "报告导出",
+    "importQueued": "导入任务已排队。完成后会通知您。",
+    "exportQueued": "导出任务已排队。准备好后会通知您。",
+    "reportExportQueued": "报告导出任务已排队。准备好后会通知您。",
+    "startedAgo": "{{time}}前开始",
+    "viewJobs": "查看后台任务",
+    "jobsRunning": "{{count}} 个任务运行中",
+    "noActiveJobs": "无活动任务",
+    "recentJobs": "最近任务",
+    "noJobs": "暂无任务",
+    "viewAllJobs": "查看所有任务",
+    "jobsList": "任务列表",
+    "showingJobs": "显示 {{count}} 个任务",
+    "filterByAction": "按操作筛选",
+    "filterByStatus": "按状态筛选",
+    "allActions": "所有操作",
+    "allStatuses": "所有状态",
+    "status": {
+      "pending": "等待中",
+      "processing": "处理中",
+      "completed": "已完成",
+      "failed": "失败"
+    }
   }
 }

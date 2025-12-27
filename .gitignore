@@ -33,3 +33,6 @@ dist-ssr
 .env
 .vercel
 .env*.local
+
+# Trigger.dev
+.trigger

@@ -5,8 +5,11 @@ import { toast } from 'sonner'
 import { FileText, Loader2, Sheet } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+
+import { loadChineseFont } from '@/lib/pdf-fonts'
 import * as XLSX from 'xlsx'
 
+import { JobStatusPanel } from '@/components/jobs/JobStatusPanel'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import {
@@ -15,6 +18,8 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useAuth } from '@/contexts/AuthContext'
+import { useActiveJobs, useQueueReportExport } from '@/hooks/use-jobs'
 import { databaseService, Query } from '@/lib/appwrite/database'
 import { productService } from '@/lib/appwrite/products'
 import { cn } from '@/lib/utils'
@@ -106,11 +111,23 @@ interface ReportData {
 
 export default function Reports() {
   const { t } = useTranslation()
+  const { user } = useAuth()
   const [startDate, setStartDate] = useState<Date | undefined>(undefined)
   const [endDate, setEndDate] = useState<Date | undefined>(undefined)
   const [isExporting, setIsExporting] = useState<'excel' | 'pdf' | null>(null)
+  const [useAsyncMode] = useState(true) // Async mode enabled by default
 
   const today = startOfDay(new Date())
+
+  // Async job hooks
+  const queueReportExport = useQueueReportExport()
+  const { data: activeJobs = [], isLoading: isLoadingJobs } = useActiveJobs(
+    user?.$id || '',
+    !!user
+  )
+
+  // Filter jobs to only show report-export jobs
+  const reportJobs = activeJobs.filter(job => job.action === 'report-export')
 
   // Fetch report data (shared between Excel and PDF export)
   const fetchReportData = useCallback(async (): Promise<ReportData | null> => {
@@ -228,6 +245,27 @@ export default function Reports() {
 
   // Export to Excel
   const handleExportExcel = useCallback(async () => {
+    // Use async mode if enabled and user is logged in
+    if (useAsyncMode && user && startDate && endDate) {
+      try {
+        setIsExporting('excel')
+        await queueReportExport.mutateAsync({
+          userId: user.$id,
+          startDate: formatDateToString(startDate),
+          endDate: formatDateToString(endDate),
+          format: 'excel',
+        })
+        toast.success(t('jobs.reportExportQueued'))
+      } catch (err) {
+        console.error('Error queuing report export:', err)
+        toast.error(t('reports.exportError'))
+      } finally {
+        setIsExporting(null)
+      }
+      return
+    }
+
+    // Fallback to sync mode
     try {
       setIsExporting('excel')
 
@@ -312,7 +350,7 @@ export default function Reports() {
     } finally {
       setIsExporting(null)
     }
-  }, [fetchReportData, t])
+  }, [fetchReportData, t, useAsyncMode, user, startDate, endDate, queueReportExport])
 
   // Export to PDF
   const handleExportPDF = useCallback(async () => {
@@ -328,6 +366,9 @@ export default function Reports() {
       const doc = new jsPDF()
       const pageWidth = doc.internal.pageSize.getWidth()
 
+      // Load Chinese font for CJK character support
+      await loadChineseFont(doc)
+
       // Consistent font sizes
       const FONT_SIZE = {
         TITLE: 16,
@@ -337,7 +378,7 @@ export default function Reports() {
 
       // Title
       doc.setFontSize(FONT_SIZE.TITLE)
-      doc.text('Packaging Report', pageWidth / 2, 20, { align: 'center' })
+      doc.text(t('reports.packagingReport'), pageWidth / 2, 20, { align: 'center' })
 
       // Subtitle with date range
       doc.setFontSize(FONT_SIZE.SECTION)
@@ -345,23 +386,23 @@ export default function Reports() {
 
       // Summary section
       doc.setFontSize(FONT_SIZE.SECTION)
-      doc.text('Summary', 14, 42)
+      doc.text(t('reports.summary'), 14, 42)
 
       const summaryTableData = [
-        ['Report Period', `${startDateStr} to ${endDateStr}`],
-        ['Total Records', String(allRecords.length)],
-        ['Total Items Scanned', String(allItems.length)],
-        ['Unique Products', String(uniqueBarcodes.length)],
-        ['Generated At', format(new Date(), 'yyyy-MM-dd HH:mm:ss')],
+        [t('reports.reportPeriod'), `${startDateStr} to ${endDateStr}`],
+        [t('reports.totalRecords'), String(allRecords.length)],
+        [t('reports.totalItemsScanned'), String(allItems.length)],
+        [t('reports.uniqueProducts'), String(uniqueBarcodes.length)],
+        [t('reports.generatedAt'), format(new Date(), 'yyyy-MM-dd HH:mm:ss')],
       ]
 
       autoTable(doc, {
         startY: 46,
-        head: [['Metric', 'Value']],
+        head: [[t('reports.metric'), t('reports.value')]],
         body: summaryTableData,
         theme: 'grid',
-        headStyles: { fillColor: [66, 66, 66] },
-        styles: { fontSize: FONT_SIZE.TABLE },
+        headStyles: { fillColor: [66, 66, 66], font: 'NotoSansSC' },
+        styles: { fontSize: FONT_SIZE.TABLE, font: 'NotoSansSC' },
         margin: { left: 14, right: 14 },
         tableWidth: 'auto',
       })
@@ -369,7 +410,7 @@ export default function Reports() {
       // Daily Summary section
       const dailySummaryY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 15
       doc.setFontSize(FONT_SIZE.SECTION)
-      doc.text('Daily Summary', 14, dailySummaryY)
+      doc.text(t('reports.dailySummary'), 14, dailySummaryY)
 
       const dailySummaryData = Array.from(dailySummary.entries())
         .sort(([a], [b]) => a.localeCompare(b))
@@ -377,18 +418,18 @@ export default function Reports() {
 
       autoTable(doc, {
         startY: dailySummaryY + 4,
-        head: [['Date', 'Records', 'Items Scanned']],
+        head: [[t('common.date'), t('reports.records'), t('reports.itemsScanned')]],
         body: dailySummaryData,
         theme: 'grid',
-        headStyles: { fillColor: [66, 66, 66] },
-        styles: { fontSize: FONT_SIZE.TABLE },
+        headStyles: { fillColor: [66, 66, 66], font: 'NotoSansSC' },
+        styles: { fontSize: FONT_SIZE.TABLE, font: 'NotoSansSC' },
         margin: { left: 14, right: 14 },
       })
 
       // Product Quantities section
       const productQuantitiesY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 15
       doc.setFontSize(FONT_SIZE.SECTION)
-      doc.text('Product Quantities', 14, productQuantitiesY)
+      doc.text(t('reports.productQuantities'), 14, productQuantitiesY)
 
       const productQuantitiesData = productQuantities.map((p, index) => [
         String(index + 1),
@@ -399,15 +440,16 @@ export default function Reports() {
 
       autoTable(doc, {
         startY: productQuantitiesY + 4,
-        head: [['#', 'Product Name', 'Barcode', 'Total Qty']],
+        head: [['#', t('products.productName'), t('products.barcode'), t('reports.totalQty')]],
         body: productQuantitiesData,
         theme: 'grid',
-        headStyles: { fillColor: [66, 66, 66] },
-        styles: { fontSize: FONT_SIZE.TABLE },
+        headStyles: { fillColor: [66, 66, 66], font: 'NotoSansSC' },
+        bodyStyles: { font: 'NotoSansSC' },
+        styles: { fontSize: FONT_SIZE.TABLE, font: 'NotoSansSC' },
         margin: { left: 14, right: 14 },
         columnStyles: {
           0: { cellWidth: 10 },
-          1: { cellWidth: 80 },
+          1: { cellWidth: 80, font: 'NotoSansSC' },
           2: { cellWidth: 40 },
           3: { cellWidth: 25 },
         },
@@ -416,7 +458,7 @@ export default function Reports() {
       // Details section (new page)
       doc.addPage()
       doc.setFontSize(FONT_SIZE.SECTION)
-      doc.text('Details', 14, 20)
+      doc.text(t('reports.details'), 14, 20)
 
       const detailsData = allItems.map((item, index) => [
         String(index + 1),
@@ -429,18 +471,19 @@ export default function Reports() {
 
       autoTable(doc, {
         startY: 24,
-        head: [['#', 'Date', 'Waybill', 'Barcode', 'Product Name', 'Time']],
+        head: [['#', t('common.date'), t('packaging.waybill'), t('products.barcode'), t('products.productName'), t('common.time')]],
         body: detailsData,
         theme: 'grid',
-        headStyles: { fillColor: [66, 66, 66] },
-        styles: { fontSize: FONT_SIZE.TABLE },
+        headStyles: { fillColor: [66, 66, 66], font: 'NotoSansSC' },
+        bodyStyles: { font: 'NotoSansSC' },
+        styles: { fontSize: FONT_SIZE.TABLE, font: 'NotoSansSC' },
         margin: { left: 14, right: 14 },
         columnStyles: {
           0: { cellWidth: 10 },
           1: { cellWidth: 22 },
           2: { cellWidth: 35 },
           3: { cellWidth: 28 },
-          4: { cellWidth: 60 },
+          4: { cellWidth: 60, font: 'NotoSansSC' },
           5: { cellWidth: 18 },
         },
       })
@@ -471,6 +514,11 @@ export default function Reports() {
         </p>
       </div>
 
+      {/* Active Jobs Panel */}
+      {user && reportJobs.length > 0 && (
+        <JobStatusPanel jobs={reportJobs} isLoading={isLoadingJobs} />
+      )}
+
       <Card className="w-full max-w-xl">
         <CardHeader>
           <CardTitle>{t('reports.packagingReport')}</CardTitle>
@@ -479,7 +527,7 @@ export default function Reports() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <DatePickerField
               label={t('reports.startDate')}
               date={startDate}
@@ -498,7 +546,7 @@ export default function Reports() {
             />
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex flex-col gap-6 sm:flex-row">
             <Button
               onClick={handleExportExcel}
               disabled={!canExport || !!isExporting}

@@ -1,7 +1,8 @@
-import { BarChart3, Box, LayoutDashboard, LogOut, Package, PackageOpen, Tags } from 'lucide-react'
+import { BarChart3, Box, LayoutDashboard, ListTodo, LogOut, Package, PackageOpen, Tags } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 
+import { JobIndicator } from '@/components/jobs/JobIndicator'
 import {
   Sidebar,
   SidebarContent,
@@ -22,6 +23,7 @@ const navItems = [
   { titleKey: 'sidebar.unpack', url: '/unpack', icon: PackageOpen },
   { titleKey: 'sidebar.products', url: '/products', icon: Tags },
   { titleKey: 'sidebar.reports', url: '/reports', icon: BarChart3 },
+  { titleKey: 'sidebar.jobs', url: '/jobs', icon: ListTodo },
 ]
 
 export function AppSidebar() {
@@ -74,6 +76,7 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        <JobIndicator />
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
