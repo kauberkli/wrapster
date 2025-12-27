@@ -40,7 +40,7 @@ export const jobService = {
     const execution = await functions.createExecution(
       FUNCTION_ID,
       JSON.stringify({
-        action: 'import',
+        action: 'import-excel',
         fileId: uploadedFile.$id,
         userId,
       }),
@@ -75,7 +75,7 @@ export const jobService = {
     const execution = await functions.createExecution(
       FUNCTION_ID,
       JSON.stringify({
-        action: 'export',
+        action: 'export-excel',
         userId,
         filters,
       }),
@@ -114,10 +114,11 @@ export const jobService = {
     endDate: string,
     format: 'excel' | 'pdf' = 'excel'
   ): Promise<QueueJobResponse> {
+    const action = format === 'pdf' ? 'export-reporting-pdf' : 'export-reporting-excel'
     const execution = await functions.createExecution(
       FUNCTION_ID,
       JSON.stringify({
-        action: 'report-export',
+        action,
         userId,
         startDate,
         endDate,
@@ -265,6 +266,47 @@ export const jobService = {
   },
 
   /**
+   * Get recently completed export jobs with downloadable files
+   */
+  async getRecentCompletedExports(userId: string): Promise<ParsedJob[]> {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+
+    const result = await databaseService.listDocuments<ImportJob>(
+      COLLECTIONS.IMPORT_JOBS,
+      [
+        Query.equal('user_id', userId),
+        Query.equal('status', 'completed'),
+        Query.contains('action', 'export'),
+        Query.isNotNull('result_file_id'),
+        Query.greaterThan('completed_at', fiveMinutesAgo),
+        Query.orderDesc('completed_at'),
+        Query.limit(5),
+      ]
+    )
+
+    return result.documents.map(parseJob)
+  },
+
+  /**
+   * Get completed report exports with downloadable files
+   */
+  async getCompletedReportExports(userId: string, limit = 20): Promise<ParsedJob[]> {
+    const result = await databaseService.listDocuments<ImportJob>(
+      COLLECTIONS.IMPORT_JOBS,
+      [
+        Query.equal('user_id', userId),
+        Query.equal('status', 'completed'),
+        Query.contains('action', 'reporting'),
+        Query.isNotNull('result_file_id'),
+        Query.orderDesc('completed_at'),
+        Query.limit(limit),
+      ]
+    )
+
+    return result.documents.map(parseJob)
+  },
+
+  /**
    * Get download URL for export result
    */
   getDownloadUrl(fileId: string): string {
@@ -283,5 +325,22 @@ export const jobService = {
       throw new Error(`Failed to download file: ${response.statusText}`)
     }
     return response.blob()
+  },
+
+  /**
+   * Delete a job record and its associated file
+   */
+  async deleteJob(jobId: string, fileId?: string | null): Promise<void> {
+    // Delete the associated file if it exists
+    if (fileId) {
+      try {
+        await storage.deleteFile(BUCKET_ID, fileId)
+      } catch {
+        // Ignore file deletion errors (file may already be deleted)
+      }
+    }
+
+    // Delete the job record
+    await databaseService.deleteDocument(COLLECTIONS.IMPORT_JOBS, jobId)
   },
 }

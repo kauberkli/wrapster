@@ -40,7 +40,8 @@ const mockProduct: Product = {
   sku_code: 'SKU-001',
   name: 'Test Product',
   type: 'single',
-  price: 29.99,
+  cost: 29.99,
+  stock_quantity: 100,
 }
 
 const mockBundleProduct: Product = {
@@ -84,7 +85,7 @@ describe('productService', () => {
           barcode: '1234567890128',
           name: 'Test Product',
           type: 'single',
-          price: 0,
+          cost: 0,
         }
       )
       expect(result).toEqual(mockProduct)
@@ -98,7 +99,7 @@ describe('productService', () => {
         sku_code: 'SKU-001',
         name: 'Test Product',
         type: 'bundle',
-        price: 29.99,
+        cost: 29.99,
       })
 
       expect(mockDatabaseService.createDocument).toHaveBeenCalledWith(
@@ -108,7 +109,7 @@ describe('productService', () => {
           barcode: '1234567890128',
           name: 'Test Product',
           type: 'bundle',
-          price: 29.99,
+          cost: 29.99,
         }
       )
     })
@@ -129,7 +130,7 @@ describe('productService', () => {
       )
     })
 
-    it('should default price to 0', async () => {
+    it('should default cost to 0', async () => {
       mockDatabaseService.createDocument.mockResolvedValue(mockProduct)
 
       await productService.create({
@@ -140,7 +141,7 @@ describe('productService', () => {
       expect(mockDatabaseService.createDocument).toHaveBeenCalledWith(
         COLLECTIONS.PRODUCTS,
         expect.objectContaining({
-          price: 0,
+          cost: 0,
         })
       )
     })
@@ -336,18 +337,18 @@ describe('productService', () => {
     })
 
     it('should update multiple fields', async () => {
-      const updatedProduct = { ...mockProduct, name: 'New Name', price: 39.99 }
+      const updatedProduct = { ...mockProduct, name: 'New Name', cost: 39.99 }
       mockDatabaseService.updateDocument.mockResolvedValue(updatedProduct)
 
       await productService.update('prod-1', {
         name: 'New Name',
-        price: 39.99,
+        cost: 39.99,
       })
 
       expect(mockDatabaseService.updateDocument).toHaveBeenCalledWith(
         COLLECTIONS.PRODUCTS,
         'prod-1',
-        { name: 'New Name', price: 39.99 }
+        { name: 'New Name', cost: 39.99 }
       )
     })
   })
@@ -609,23 +610,23 @@ describe('productService edge cases', () => {
   })
 
   describe('create with edge values', () => {
-    it('should create a product with zero price', async () => {
-      const productWithZeroPrice = { ...mockProduct, price: 0 }
-      mockDatabaseService.createDocument.mockResolvedValue(productWithZeroPrice)
+    it('should create a product with zero cost', async () => {
+      const productWithZeroCost = { ...mockProduct, cost: 0 }
+      mockDatabaseService.createDocument.mockResolvedValue(productWithZeroCost)
 
       const result = await productService.create({
         barcode: '1234567890128',
         name: 'Free Product',
-        price: 0,
+        cost: 0,
       })
 
       expect(mockDatabaseService.createDocument).toHaveBeenCalledWith(
         COLLECTIONS.PRODUCTS,
         expect.objectContaining({
-          price: 0,
+          cost: 0,
         })
       )
-      expect(result.price).toBe(0)
+      expect(result.cost).toBe(0)
     })
 
     it('should create a product with null sku_code when not provided', async () => {
@@ -680,20 +681,20 @@ describe('productService edge cases', () => {
       )
     })
 
-    it('should create a product with high price value', async () => {
-      const highPriceProduct = { ...mockProduct, price: 999999.99 }
-      mockDatabaseService.createDocument.mockResolvedValue(highPriceProduct)
+    it('should create a product with high cost value', async () => {
+      const highCostProduct = { ...mockProduct, cost: 999999.99 }
+      mockDatabaseService.createDocument.mockResolvedValue(highCostProduct)
 
       await productService.create({
         barcode: '1234567890128',
         name: 'Expensive Product',
-        price: 999999.99,
+        cost: 999999.99,
       })
 
       expect(mockDatabaseService.createDocument).toHaveBeenCalledWith(
         COLLECTIONS.PRODUCTS,
         expect.objectContaining({
-          price: 999999.99,
+          cost: 999999.99,
         })
       )
     })
@@ -759,16 +760,16 @@ describe('productService edge cases', () => {
       )
     })
 
-    it('should update only price field', async () => {
-      const updatedProduct = { ...mockProduct, price: 49.99 }
+    it('should update only cost field', async () => {
+      const updatedProduct = { ...mockProduct, cost: 49.99 }
       mockDatabaseService.updateDocument.mockResolvedValue(updatedProduct)
 
-      await productService.update('prod-1', { price: 49.99 })
+      await productService.update('prod-1', { cost: 49.99 })
 
       expect(mockDatabaseService.updateDocument).toHaveBeenCalledWith(
         COLLECTIONS.PRODUCTS,
         'prod-1',
-        { price: 49.99 }
+        { cost: 49.99 }
       )
     })
 

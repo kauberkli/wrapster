@@ -52,6 +52,30 @@ export function useActiveJobs(userId: string, enabled = true) {
 }
 
 /**
+ * Hook to fetch recently completed export jobs for a user
+ */
+export function useRecentCompletedExports(userId: string, enabled = true) {
+  return useQuery({
+    queryKey: [JOBS_QUERY_KEY, 'recent-exports', userId],
+    queryFn: () => jobService.getRecentCompletedExports(userId),
+    enabled: enabled && !!userId,
+    refetchInterval: 5000, // Poll every 5 seconds
+  })
+}
+
+/**
+ * Hook to fetch completed report exports for a user
+ */
+export function useCompletedReportExports(userId: string, enabled = true) {
+  return useQuery({
+    queryKey: [JOBS_QUERY_KEY, 'completed-reports', userId],
+    queryFn: () => jobService.getCompletedReportExports(userId),
+    enabled: enabled && !!userId,
+    refetchInterval: 3000, // Poll every 3 seconds for quick updates
+  })
+}
+
+/**
  * Hook to fetch a single job by ID
  */
 export function useJob(jobId: string, enabled = true) {
@@ -136,11 +160,15 @@ export function useQueueReportExport() {
       format?: 'excel' | 'pdf'
     }) => jobService.queueReportExport(userId, startDate, endDate, format),
     onSuccess: (_data, variables) => {
+      // Invalidate all job-related queries to refresh the UI
       queryClient.invalidateQueries({
         queryKey: [JOBS_QUERY_KEY, variables.userId],
       })
       queryClient.invalidateQueries({
         queryKey: [ACTIVE_JOBS_QUERY_KEY, variables.userId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [JOBS_QUERY_KEY, 'completed-reports', variables.userId],
       })
     },
   })
@@ -171,6 +199,32 @@ export function useDownloadExport() {
       window.URL.revokeObjectURL(url)
 
       return { success: true }
+    },
+  })
+}
+
+/**
+ * Hook to delete a job record
+ */
+export function useDeleteJob() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      jobId,
+      fileId,
+    }: {
+      jobId: string
+      fileId?: string | null
+    }) => jobService.deleteJob(jobId, fileId),
+    onSuccess: () => {
+      // Invalidate all job-related queries
+      queryClient.invalidateQueries({
+        queryKey: [JOBS_QUERY_KEY],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [ACTIVE_JOBS_QUERY_KEY],
+      })
     },
   })
 }

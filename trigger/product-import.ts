@@ -20,7 +20,7 @@ interface ProductRow {
   "SKU Code"?: string;
   "Product Name": string;
   Type: string;
-  Price?: number;
+  Cost?: number;
   "Bundle Components"?: string;
 }
 
@@ -28,7 +28,7 @@ interface CachedProduct {
   $id: string;
   name: string;
   sku_code: string | null;
-  price: number;
+  cost: number;
   type: string;
 }
 
@@ -104,7 +104,7 @@ async function fetchAllProducts(databases: Databases): Promise<Map<string, Cache
         $id: doc.$id,
         name: doc.name as string,
         sku_code: doc.sku_code as string | null,
-        price: doc.price as number,
+        cost: doc.cost as number,
         type: doc.type as string,
       });
     }
@@ -141,8 +141,7 @@ export const productImportTask = task({
 
       // Download file from Appwrite Storage
       logger.info("Downloading file from storage");
-      const fileBuffer = await storage.getFileDownload(bucketId, fileId);
-      const arrayBuffer = await fileBuffer.arrayBuffer();
+      const arrayBuffer = await storage.getFileDownload(bucketId, fileId);
 
       // Parse Excel file
       logger.info("Parsing Excel file");
@@ -183,7 +182,7 @@ export const productImportTask = task({
         barcode: string;
         sku_code?: string;
         name: string;
-        price: number;
+        cost: number;
         components: string;
         existingId?: string;
       }> = [];
@@ -199,7 +198,7 @@ export const productImportTask = task({
         const type = (row.Type || "Single").toLowerCase();
         const skuCode = row["SKU Code"] ? String(row["SKU Code"]).trim() : undefined;
         const name = String(row["Product Name"]).trim();
-        const price = Number(row.Price) || 0;
+        const cost = Number(row.Cost) || 0;
         const components = row["Bundle Components"] || "";
 
         const existing = productCache.get(barcode);
@@ -209,7 +208,7 @@ export const productImportTask = task({
             barcode,
             sku_code: skuCode,
             name,
-            price,
+            cost,
             components,
             existingId: existing?.$id,
           });
@@ -218,7 +217,7 @@ export const productImportTask = task({
             const hasChanges =
               existing.name !== name ||
               existing.sku_code !== (skuCode || null) ||
-              existing.price !== price;
+              existing.cost !== cost;
 
             if (hasChanges) {
               try {
@@ -226,9 +225,9 @@ export const productImportTask = task({
                 await databases.updateDocument(databaseId, COLLECTIONS.PRODUCTS, existing.$id, {
                   sku_code: skuCode || null,
                   name,
-                  price,
+                  cost,
                 });
-                productCache.set(barcode, { ...existing, name, sku_code: skuCode || null, price });
+                productCache.set(barcode, { ...existing, name, sku_code: skuCode || null, cost });
                 stats.updated++;
               } catch (err) {
                 logger.error("Failed to update product", { barcode, error: err });
@@ -249,7 +248,7 @@ export const productImportTask = task({
                   sku_code: skuCode || null,
                   name,
                   type: "single",
-                  price,
+                  cost,
                 }
               );
               productMap.set(barcode, newProduct.$id);
@@ -257,7 +256,7 @@ export const productImportTask = task({
                 $id: newProduct.$id,
                 name,
                 sku_code: skuCode || null,
-                price,
+                cost,
                 type: "single",
               });
               stats.imported++;
@@ -280,14 +279,14 @@ export const productImportTask = task({
               existing &&
               (existing.name !== bundle.name ||
                 existing.sku_code !== (bundle.sku_code || null) ||
-                existing.price !== bundle.price);
+                existing.cost !== bundle.cost);
 
             if (hasChanges) {
               await delay(API_DELAY);
               await databases.updateDocument(databaseId, COLLECTIONS.PRODUCTS, bundle.existingId, {
                 sku_code: bundle.sku_code || null,
                 name: bundle.name,
-                price: bundle.price,
+                cost: bundle.cost,
               });
             }
             bundleId = bundle.existingId;
@@ -316,7 +315,7 @@ export const productImportTask = task({
                 sku_code: bundle.sku_code || null,
                 name: bundle.name,
                 type: "bundle",
-                price: bundle.price,
+                cost: bundle.cost,
               }
             );
             bundleId = newBundle.$id;

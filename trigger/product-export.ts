@@ -106,7 +106,7 @@ export const productExportTask = task({
         sku_code: string | null;
         name: string;
         type: string;
-        price: number;
+        cost: number;
         $createdAt: string;
       }> = [];
 
@@ -127,7 +127,7 @@ export const productExportTask = task({
             sku_code: doc.sku_code as string | null,
             name: doc.name as string,
             type: doc.type as string,
-            price: doc.price as number,
+            cost: doc.cost as number,
             $createdAt: doc.$createdAt,
           });
         }
@@ -149,7 +149,7 @@ export const productExportTask = task({
         "SKU Code": product.sku_code || "",
         "Product Name": product.name,
         Type: product.type === "bundle" ? "Bundle" : "Single",
-        Price: product.price,
+        Cost: product.cost,
         "Created At": new Date(product.$createdAt).toLocaleString(),
       }));
 
@@ -163,7 +163,7 @@ export const productExportTask = task({
         { wch: 15 }, // SKU Code
         { wch: 30 }, // Product Name
         { wch: 10 }, // Type
-        { wch: 12 }, // Price
+        { wch: 12 }, // Cost
         { wch: 20 }, // Created At
       ];
 

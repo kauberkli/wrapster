@@ -9,6 +9,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from '@tanstack/react-table'
+import { useQueryClient } from '@tanstack/react-query'
 
 import {
   AlertDialog,
@@ -62,22 +63,30 @@ function formatDateToString(date: Date): string {
   return format(date, 'yyyy-MM-dd')
 }
 
+// Bundle component for display only (used in saved records)
+interface BundleComponentDisplay {
+  barcode: string
+  productName: string
+  quantity: number
+}
+
 // Extended type to include product name for display
 interface PackagingItemWithProduct extends PackagingItem {
   product_name: string
   is_bundle?: boolean
-  bundle_components?: BundleComponentItem[]
+  bundle_components?: BundleComponentDisplay[]
 }
 
 interface PackagingRecordWithItemsAndProducts extends PackagingRecord {
   items: PackagingItemWithProduct[]
 }
 
-// Bundle component for display
+// Bundle component for display (includes product for stock validation)
 interface BundleComponentItem {
   barcode: string
   productName: string
   quantity: number
+  product: Product // Full product for stock operations
 }
 
 // Local item type for state (before saving to database)
@@ -86,10 +95,21 @@ interface LocalPackagingItem {
   productName: string
   isBundle?: boolean
   bundleComponents?: BundleComponentItem[]
+  stockQuantity?: number // Original stock at time of scan (for single products)
+  product?: Product // Full product reference for stock operations
+}
+
+// Insufficient stock info for error display
+interface InsufficientStockItem {
+  barcode: string
+  name: string
+  required: number
+  available: number
 }
 
 export default function Packaging() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
 
   // Date navigation state
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
@@ -120,10 +140,109 @@ export default function Packaging() {
   // Waybill exists dialog state
   const [waybillExistsNumber, setWaybillExistsNumber] = useState<string | null>(null)
 
+  // Insufficient stock dialog state
+  const [insufficientStockItems, setInsufficientStockItems] = useState<InsufficientStockItem[] | null>(null)
+
+  // Local stock tracking - maps barcode to available stock (deducted during session)
+  const [localStock, setLocalStock] = useState<Map<string, number>>(new Map())
+
   // Product search state
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [isLoadingProducts, setIsLoadingProducts] = useState(false)
   const [productPopoverOpen, setProductPopoverOpen] = useState(false)
+
+  // Helper: Get available stock for a product (checks localStock first, then original)
+  const getAvailableStock = useCallback((barcode: string, originalStock: number): number => {
+    if (localStock.has(barcode)) {
+      return localStock.get(barcode)!
+    }
+    return originalStock
+  }, [localStock])
+
+  // Helper: Check stock availability and return insufficient items
+  const checkStockAvailability = useCallback((
+    product: Product,
+    bundleComponents?: Array<{ product: Product; quantity: number }>
+  ): InsufficientStockItem[] => {
+    const insufficient: InsufficientStockItem[] = []
+
+    if (product.type === 'bundle' && bundleComponents) {
+      // For bundles, check each component
+      for (const comp of bundleComponents) {
+        const available = getAvailableStock(comp.product.barcode, comp.product.stock_quantity)
+        if (available < comp.quantity) {
+          insufficient.push({
+            barcode: comp.product.barcode,
+            name: comp.product.name,
+            required: comp.quantity,
+            available,
+          })
+        }
+      }
+    } else {
+      // For single products, check the product itself
+      const available = getAvailableStock(product.barcode, product.stock_quantity)
+      if (available < 1) {
+        insufficient.push({
+          barcode: product.barcode,
+          name: product.name,
+          required: 1,
+          available,
+        })
+      }
+    }
+
+    return insufficient
+  }, [getAvailableStock])
+
+  // Helper: Deduct stock for a product
+  const deductStock = useCallback((
+    product: Product,
+    bundleComponents?: Array<{ product: Product; quantity: number }>
+  ) => {
+    setLocalStock((prev) => {
+      const newStock = new Map(prev)
+
+      if (product.type === 'bundle' && bundleComponents) {
+        // For bundles, deduct each component
+        for (const comp of bundleComponents) {
+          const current = newStock.has(comp.product.barcode)
+            ? newStock.get(comp.product.barcode)!
+            : comp.product.stock_quantity
+          newStock.set(comp.product.barcode, current - comp.quantity)
+        }
+      } else {
+        // For single products, deduct 1
+        const current = newStock.has(product.barcode)
+          ? newStock.get(product.barcode)!
+          : product.stock_quantity
+        newStock.set(product.barcode, current - 1)
+      }
+
+      return newStock
+    })
+  }, [])
+
+  // Helper: Restore stock for a product (when removing from list)
+  const restoreStock = useCallback((item: LocalPackagingItem) => {
+    setLocalStock((prev) => {
+      const newStock = new Map(prev)
+
+      if (item.isBundle && item.bundleComponents) {
+        // For bundles, restore each component
+        for (const comp of item.bundleComponents) {
+          const current = newStock.get(comp.barcode) ?? comp.product.stock_quantity
+          newStock.set(comp.barcode, current + comp.quantity)
+        }
+      } else if (item.product) {
+        // For single products, restore 1
+        const current = newStock.get(item.barcode) ?? item.product.stock_quantity
+        newStock.set(item.barcode, current + 1)
+      }
+
+      return newStock
+    })
+  }, [])
 
   // Refs for inputs and barcode scanner handling
   const waybillInputRef = useRef<HTMLInputElement>(null)
@@ -300,23 +419,43 @@ export default function Packaging() {
         return
       }
 
-      // Build the item, including bundle components if applicable
+      // Fetch bundle components if applicable
+      let bundleComponents: Array<{ product: Product; quantity: number }> | undefined
+      if (product.type === 'bundle') {
+        const productWithComponents = await productService.getWithComponents(product.$id)
+        if (productWithComponents.components && productWithComponents.components.length > 0) {
+          bundleComponents = productWithComponents.components
+        }
+      }
+
+      // Check stock availability
+      const insufficientItems = checkStockAvailability(product, bundleComponents)
+      if (insufficientItems.length > 0) {
+        setInsufficientStockItems(insufficientItems)
+        setProductInput('')
+        return
+      }
+
+      // Deduct stock from local state
+      deductStock(product, bundleComponents)
+
+      // Build the item
       const newItem: LocalPackagingItem = {
         barcode: barcodeToSubmit,
         productName: product.name,
         isBundle: product.type === 'bundle',
+        stockQuantity: product.stock_quantity,
+        product,
       }
 
-      // If it's a bundle, fetch its components
-      if (product.type === 'bundle') {
-        const productWithComponents = await productService.getWithComponents(product.$id)
-        if (productWithComponents.components && productWithComponents.components.length > 0) {
-          newItem.bundleComponents = productWithComponents.components.map((comp) => ({
-            barcode: comp.product.barcode,
-            productName: comp.product.name,
-            quantity: comp.quantity,
-          }))
-        }
+      // Add bundle components if applicable
+      if (bundleComponents) {
+        newItem.bundleComponents = bundleComponents.map((comp) => ({
+          barcode: comp.product.barcode,
+          productName: comp.product.name,
+          quantity: comp.quantity,
+          product: comp.product,
+        }))
       }
 
       setCurrentItems((prev) => [...prev, newItem])
@@ -331,7 +470,7 @@ export default function Packaging() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [currentWaybill, productInput])
+  }, [currentWaybill, productInput, checkStockAvailability, deductStock])
 
   // Handle product selection from dropdown
   const handleProductSelect = useCallback(async (product: Product) => {
@@ -339,26 +478,48 @@ export default function Packaging() {
 
     setIsSubmitting(true)
 
-    const newItem: LocalPackagingItem = {
-      barcode: product.barcode,
-      productName: product.name,
-      isBundle: product.type === 'bundle',
-    }
-
-    // If it's a bundle, fetch its components
+    // Fetch bundle components if applicable
+    let bundleComponents: Array<{ product: Product; quantity: number }> | undefined
     if (product.type === 'bundle') {
       try {
         const productWithComponents = await productService.getWithComponents(product.$id)
         if (productWithComponents.components && productWithComponents.components.length > 0) {
-          newItem.bundleComponents = productWithComponents.components.map((comp) => ({
-            barcode: comp.product.barcode,
-            productName: comp.product.name,
-            quantity: comp.quantity,
-          }))
+          bundleComponents = productWithComponents.components
         }
       } catch (err) {
         console.error('Error fetching bundle components:', err)
       }
+    }
+
+    // Check stock availability
+    const insufficientItems = checkStockAvailability(product, bundleComponents)
+    if (insufficientItems.length > 0) {
+      setInsufficientStockItems(insufficientItems)
+      setProductInput('')
+      setProductPopoverOpen(false)
+      setIsSubmitting(false)
+      return
+    }
+
+    // Deduct stock from local state
+    deductStock(product, bundleComponents)
+
+    const newItem: LocalPackagingItem = {
+      barcode: product.barcode,
+      productName: product.name,
+      isBundle: product.type === 'bundle',
+      stockQuantity: product.stock_quantity,
+      product,
+    }
+
+    // Add bundle components if applicable
+    if (bundleComponents) {
+      newItem.bundleComponents = bundleComponents.map((comp) => ({
+        barcode: comp.product.barcode,
+        productName: comp.product.name,
+        quantity: comp.quantity,
+        product: comp.product,
+      }))
     }
 
     setCurrentItems((prev) => [...prev, newItem])
@@ -368,13 +529,20 @@ export default function Packaging() {
 
     // Keep focus on product input for continuous scanning
     setTimeout(() => productInputRef.current?.focus(), 0)
-  }, [currentWaybill])
+  }, [currentWaybill, checkStockAvailability, deductStock])
 
   // Handle removing an item from current draft
   const handleRemoveItem = useCallback((index: number) => {
-    setCurrentItems((prev) => prev.filter((_, i) => i !== index))
+    setCurrentItems((prev) => {
+      const itemToRemove = prev[index]
+      // Restore stock for the removed item
+      if (itemToRemove) {
+        restoreStock(itemToRemove)
+      }
+      return prev.filter((_, i) => i !== index)
+    })
     productInputRef.current?.focus()
-  }, [])
+  }, [restoreStock])
 
   // Handle completing current waybill - save to database
   const handleCompleteWaybill = useCallback(async () => {
@@ -411,6 +579,24 @@ export default function Packaging() {
         })
       )
 
+      // Deduct stock from database
+      const stockItems = currentItems.map(item => ({
+        product_barcode: item.barcode,
+        is_bundle: item.isBundle,
+        bundle_components: item.bundleComponents?.map(comp => ({
+          product: comp.product,
+          quantity: comp.quantity,
+        })),
+      }))
+      const stockResult = await productService.deductStockForPackaging(stockItems)
+      if (!stockResult.success) {
+        console.error('Stock deduction errors:', stockResult.errors)
+        toast.error(t('packaging.stockDeductionError'))
+      }
+
+      // Invalidate products cache to reflect stock changes
+      await queryClient.invalidateQueries({ queryKey: ['products'] })
+
       // Add to today's records
       const completedRecord: PackagingRecordWithItemsAndProducts = {
         ...newRecord,
@@ -423,6 +609,7 @@ export default function Packaging() {
       setCurrentItems([])
       setWaybillInput('')
       setProductInput('')
+      setLocalStock(new Map()) // Clear local stock tracking
       waybillInputRef.current?.focus()
 
       toast.success(t('packaging.recordSaved'))
@@ -432,7 +619,7 @@ export default function Packaging() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [currentWaybill, currentItems])
+  }, [currentWaybill, currentItems, queryClient, t])
 
   // Barcode scanner detection and Enter key handling
   useEffect(() => {
@@ -453,6 +640,7 @@ export default function Packaging() {
         setCurrentItems([])
         setWaybillInput('')
         setProductInput('')
+        setLocalStock(new Map()) // Clear local stock tracking
         setTimeout(() => waybillInputRef.current?.focus(), 0)
         return
       }
@@ -472,6 +660,13 @@ export default function Packaging() {
           e.stopImmediatePropagation()
           setWaybillExistsNumber(null)
           waybillInputRef.current?.focus()
+          return
+        }
+        if (insufficientStockItems) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          setInsufficientStockItems(null)
+          productInputRef.current?.focus()
           return
         }
         // Skip delete dialog - let it handle its own Enter (has Cancel/Delete options)
@@ -547,7 +742,7 @@ export default function Packaging() {
     // Use capture phase so this fires BEFORE the input's onKeyDown
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [currentWaybill, currentItems.length, productInput, handleWaybillSubmit, handleProductSubmit, handleCompleteWaybill, productNotFoundBarcode, waybillExistsNumber, deleteRecord])
+  }, [currentWaybill, currentItems.length, productInput, handleWaybillSubmit, handleProductSubmit, handleCompleteWaybill, productNotFoundBarcode, waybillExistsNumber, insufficientStockItems, deleteRecord])
 
   // Handle delete record
   const handleDeleteRecord = async () => {
@@ -555,7 +750,29 @@ export default function Packaging() {
 
     try {
       setIsSubmitting(true)
+
+      // Prepare items for stock restoration
+      // Note: For saved records, bundle_components don't have full product info,
+      // so we skip bundle component stock restoration for those
+      const stockItems = deleteRecord.items.map(item => ({
+        product_barcode: item.product_barcode,
+        is_bundle: item.is_bundle,
+        bundle_components: undefined, // Skip bundle stock restoration for saved records
+      }))
+
+      // Delete the packaging record
       await packagingRecordService.delete(deleteRecord.$id)
+
+      // Restore stock in database
+      const stockResult = await productService.restoreStockForPackaging(stockItems)
+      if (!stockResult.success) {
+        console.error('Stock restoration errors:', stockResult.errors)
+        toast.error(t('packaging.stockRestoreError'))
+      }
+
+      // Invalidate products cache to reflect stock changes
+      await queryClient.invalidateQueries({ queryKey: ['products'] })
+
       setDeleteRecord(null)
       setTodayRecords((prev) => prev.filter((r) => r.$id !== deleteRecord.$id))
     } catch (err) {
@@ -618,12 +835,12 @@ export default function Packaging() {
                   <span className="font-mono">{item.product_barcode}</span>
                   <span className="text-muted-foreground"> - {item.product_name}</span>
                   {item.is_bundle && (
-                    <span className="ml-1 text-xs text-blue-600 dark:text-blue-400">(Bundle)</span>
+                    <span className="ml-1 text-xs text-primary">(Bundle)</span>
                   )}
                 </div>
                 {/* Show bundle components */}
                 {item.is_bundle && item.bundle_components && item.bundle_components.length > 0 && (
-                  <div className="ml-6 mt-1 flex flex-col gap-0.5 border-l-2 border-blue-200 pl-2 dark:border-blue-800">
+                  <div className="ml-6 mt-1 flex flex-col gap-0.5 border-l-2 border-primary/30 pl-2">
                     {item.bundle_components.map((comp, compIndex) => (
                       <div key={compIndex} className="text-xs text-muted-foreground">
                         <span className="font-mono">{comp.barcode}</span>
@@ -652,6 +869,16 @@ export default function Packaging() {
         size: 80,
       },
       {
+        id: 'date',
+        header: t('common.date'),
+        cell: ({ row }) => (
+          <div className="text-muted-foreground">
+            {format(new Date(row.original.$createdAt), 'yyyy-MM-dd')}
+          </div>
+        ),
+        size: 100,
+      },
+      {
         id: 'time',
         header: t('common.time'),
         cell: ({ row }) => (
@@ -659,7 +886,7 @@ export default function Packaging() {
             {formatTime(row.original.$createdAt)}
           </div>
         ),
-        size: 96,
+        size: 80,
       },
       {
         id: 'actions',
@@ -746,7 +973,7 @@ export default function Packaging() {
           <TableBody>
             {/* Input Row - Only shown for today */}
             {isSelectedToday && (
-              <TableRow className="bg-primary/5 hover:bg-primary/5">
+              <TableRow>
                 <TableCell className="text-muted-foreground text-center align-top pt-3" style={{ width: 64 }}>
                   <Plus className="mx-auto size-4" />
                 </TableCell>
@@ -855,11 +1082,11 @@ export default function Packaging() {
                     </div>
                     {/* Current items for active waybill - Card Display */}
                     {currentItems.length > 0 && (
-                      <div className="flex flex-wrap gap-2 pt-1">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
                         {currentItems.map((item, index) => (
                           <div
                             key={index}
-                            className="relative rounded-lg border bg-card p-3 shadow-sm min-w-[200px] max-w-[280px]"
+                            className="relative rounded-lg border bg-card p-3 shadow-sm"
                           >
                             {/* Remove button */}
                             <button
@@ -876,7 +1103,7 @@ export default function Packaging() {
                               <div className="font-medium text-sm line-clamp-2">{item.productName}</div>
                               <div className="font-mono text-xs text-muted-foreground mt-1">{item.barcode}</div>
                               {item.isBundle && (
-                                <span className="inline-block mt-1 px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                                <span className="inline-block mt-1 px-1.5 py-0.5 text-xs rounded bg-primary/10 text-primary">
                                   Bundle
                                 </span>
                               )}
@@ -908,7 +1135,10 @@ export default function Packaging() {
                     <span className="font-semibold">{currentItems.length}</span>
                   )}
                 </TableCell>
-                <TableCell className="text-muted-foreground align-top pt-3" style={{ width: 96 }}>
+                <TableCell className="text-muted-foreground align-top pt-3" style={{ width: 100 }}>
+                  {currentWaybill && <span className="text-xs italic">-</span>}
+                </TableCell>
+                <TableCell className="text-muted-foreground align-top pt-3" style={{ width: 80 }}>
                   {currentWaybill && <span className="text-xs italic">{t('common.draft')}</span>}
                 </TableCell>
                 <TableCell className="text-center align-top pt-3" style={{ width: 80 }}>
@@ -920,7 +1150,7 @@ export default function Packaging() {
             {/* Loading State */}
             {isLoading && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
+                <TableCell colSpan={7} className="text-center py-8">
                   <Loader2 className="mx-auto size-6 animate-spin" />
                 </TableCell>
               </TableRow>
@@ -944,7 +1174,7 @@ export default function Packaging() {
             {/* Empty State */}
             {!isLoading && todayRecords.length === 0 && !currentWaybill && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
+                <TableCell colSpan={7} className="text-center py-8">
                   <p className="text-muted-foreground">
                     {isSelectedToday
                       ? t('packaging.noRecordsToday')
@@ -1040,6 +1270,51 @@ export default function Packaging() {
               onClick={() => {
                 setWaybillExistsNumber(null)
                 waybillInputRef.current?.focus()
+              }}
+            >
+              {t('common.ok')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Insufficient Stock Dialog */}
+      <AlertDialog
+        open={!!insufficientStockItems}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInsufficientStockItems(null)
+            productInputRef.current?.focus()
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('packaging.insufficientStockTitle')}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="mb-3">{t('packaging.insufficientStockMessage')}</p>
+                <div className="space-y-2">
+                  {insufficientStockItems?.map((item, index) => (
+                    <div key={index} className="flex items-center justify-between rounded-md bg-destructive/10 px-3 py-2 text-sm">
+                      <div>
+                        <span className="font-medium">{item.name}</span>
+                        <span className="text-muted-foreground ml-2 font-mono text-xs">({item.barcode})</span>
+                      </div>
+                      <div className="text-destructive font-medium">
+                        {t('packaging.stockRequired', { required: item.required, available: item.available })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => {
+                setInsufficientStockItems(null)
+                productInputRef.current?.focus()
               }}
             >
               {t('common.ok')}

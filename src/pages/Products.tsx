@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, FileUp, Loader2, Package, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { formatDistanceToNow } from 'date-fns'
+import { ArrowDown, ArrowUp, ArrowUpDown, Download, FileSpreadsheet, FileUp, Loader2, Package, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import {
   type ColumnDef,
   flexRender,
   getCoreRowModel,
+  getSortedRowModel,
+  type SortingState,
   useReactTable,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import * as XLSX from 'xlsx'
 
-import { JobStatusPanel } from '@/components/jobs/JobStatusPanel'
 import {
   ProductForm,
   type ProductFormValues,
@@ -51,7 +53,7 @@ import {
 } from '@/components/ui/table'
 import { useAuth } from '@/contexts/AuthContext'
 import { useDebounce } from '@/hooks/use-debounce'
-import { useActiveJobs, useQueueExport, useQueueImport } from '@/hooks/use-jobs'
+import { useActiveJobs, useDeleteJob, useDownloadExport, useQueueExport, useQueueImport, useRecentCompletedExports } from '@/hooks/use-jobs'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   fetchAllProductsForExport,
@@ -82,15 +84,38 @@ export default function Products() {
   // Async job hooks
   const queueImport = useQueueImport()
   const queueExport = useQueueExport()
-  const { data: activeJobs = [], isLoading: isLoadingJobs } = useActiveJobs(
+  const downloadExport = useDownloadExport()
+  const deleteJob = useDeleteJob()
+  const { data: activeJobs = [] } = useActiveJobs(
     user?.$id || '',
     !!user
   )
+  const { data: completedExports = [] } = useRecentCompletedExports(
+    user?.$id || '',
+    !!user
+  )
+
+  // Filter to only product exports (not reports)
+  const productExports = completedExports.filter(j => !j.action.includes('reporting'))
+
+  // Check if import/export jobs are running
+  const hasRunningImportJob = activeJobs.some(
+    (job) => job.action === 'import-excel' && (job.status === 'pending' || job.status === 'processing')
+  )
+  const hasRunningExportJob = activeJobs.some(
+    (job) => job.action === 'export-excel' && (job.status === 'pending' || job.status === 'processing')
+  )
+
+  // Track completed import jobs to invalidate cache
+  const completedImportJobIds = useRef<Set<string>>(new Set())
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<ProductType | 'all'>('all')
   const debouncedSearch = useDebounce(searchQuery, 300)
+
+  // Sorting state
+  const [sorting, setSorting] = useState<SortingState>([])
 
   // Virtualization
   const ROW_HEIGHT = 53
@@ -105,6 +130,7 @@ export default function Products() {
     fetchNextPage,
   } = useProducts({
     type: typeFilter === 'all' ? undefined : typeFilter,
+    search: debouncedSearch || undefined,
   })
 
   const queryClient = useQueryClient()
@@ -162,7 +188,7 @@ export default function Products() {
         'SKU Code': product.sku_code || '',
         'Product Name': product.name,
         'Type': product.type === 'bundle' ? 'Bundle' : 'Single',
-        'Price': product.price,
+        'Cost': product.cost,
         'Created At': new Date(product.$createdAt).toLocaleString(),
       }))
 
@@ -176,7 +202,7 @@ export default function Products() {
         { wch: 15 },  // SKU Code
         { wch: 30 },  // Product Name
         { wch: 10 },  // Type
-        { wch: 12 },  // Price
+        { wch: 12 },  // Cost
         { wch: 20 },  // Created At
       ]
 
@@ -197,6 +223,26 @@ export default function Products() {
     }
   }
 
+  // Handle download of completed export
+  const handleDownloadExport = async (job: typeof productExports[0]) => {
+    if (!job.result_file_id) return
+
+    const date = new Date(job.created_at).toISOString().split('T')[0]
+    await downloadExport.mutateAsync({
+      fileId: job.result_file_id,
+      fileName: `products_export_${date}.xlsx`,
+    })
+  }
+
+  // Handle delete of export record
+  const handleDeleteExport = async (job: typeof productExports[0]) => {
+    await deleteJob.mutateAsync({
+      jobId: job.$id,
+      fileId: job.result_file_id,
+    })
+    toast.success(t('jobs.exportDeleted'))
+  }
+
   // Download import template
   const handleDownloadTemplate = () => {
     const templateData = [
@@ -205,7 +251,7 @@ export default function Products() {
         'SKU Code': 'SKU-001',
         'Product Name': 'Sample Single Product',
         'Type': 'Single',
-        'Price': 9.99,
+        'Cost': 9.99,
         'Bundle Components': '',
       },
       {
@@ -213,7 +259,7 @@ export default function Products() {
         'SKU Code': 'SKU-BUNDLE-001',
         'Product Name': 'Sample Bundle Product',
         'Type': 'Bundle',
-        'Price': 29.99,
+        'Cost': 29.99,
         'Bundle Components': '1234567890123:2,ANOTHER-BARCODE:1',
       },
     ]
@@ -223,7 +269,7 @@ export default function Products() {
       { 'Column': 'SKU Code', 'Required': 'No', 'Description': 'Optional SKU code for the product' },
       { 'Column': 'Product Name', 'Required': 'Yes', 'Description': 'Name of the product' },
       { 'Column': 'Type', 'Required': 'Yes', 'Description': 'Either "Single" or "Bundle"' },
-      { 'Column': 'Price', 'Required': 'No', 'Description': 'Product price (defaults to 0)' },
+      { 'Column': 'Cost', 'Required': 'No', 'Description': 'Product cost (defaults to 0)' },
       { 'Column': 'Bundle Components', 'Required': 'No', 'Description': 'For bundles: comma-separated list of BARCODE:QUANTITY pairs (e.g., "ABC123:2,DEF456:1")' },
     ]
 
@@ -236,7 +282,7 @@ export default function Products() {
       { wch: 15 }, // SKU Code
       { wch: 30 }, // Product Name
       { wch: 10 }, // Type
-      { wch: 10 }, // Price
+      { wch: 10 }, // Cost
       { wch: 40 }, // Bundle Components
     ]
     XLSX.utils.book_append_sheet(workbook, productsSheet, 'Products')
@@ -298,7 +344,7 @@ export default function Products() {
         'SKU Code'?: string
         'Product Name': string
         'Type': string
-        'Price'?: number
+        'Cost'?: number
         'Bundle Components'?: string
       }>(worksheet)
 
@@ -309,14 +355,14 @@ export default function Products() {
 
       // Pre-fetch all existing products into a cache to reduce API calls
       toast.info(t('products.loadingProducts'))
-      const productCache = new Map<string, { $id: string; name: string; sku_code: string | null; price: number; type: string }>()
+      const productCache = new Map<string, { $id: string; name: string; sku_code: string | null; cost: number; type: string }>()
       const allProducts = await fetchAllProductsForExport()
       for (const product of allProducts) {
         productCache.set(product.barcode, {
           $id: product.$id,
           name: product.name,
           sku_code: product.sku_code,
-          price: product.price,
+          cost: product.cost,
           type: product.type,
         })
       }
@@ -334,7 +380,7 @@ export default function Products() {
         barcode: string
         sku_code?: string
         name: string
-        price: number
+        cost: number
         components: string
         existingId?: string
       }> = []
@@ -354,7 +400,7 @@ export default function Products() {
         const type = (row['Type'] || 'Single').toLowerCase()
         const skuCode = row['SKU Code'] ? String(row['SKU Code']).trim() : undefined
         const name = String(row['Product Name']).trim()
-        const price = Number(row['Price']) || 0
+        const cost = Number(row['Cost']) || 0
         const components = row['Bundle Components'] || ''
 
         // Check cache for existing product
@@ -365,7 +411,7 @@ export default function Products() {
             barcode,
             sku_code: skuCode,
             name,
-            price,
+            cost,
             components,
             existingId: existing?.$id,
           })
@@ -375,7 +421,7 @@ export default function Products() {
             const hasChanges =
               existing.name !== name ||
               existing.sku_code !== (skuCode || null) ||
-              existing.price !== price
+              existing.cost !== cost
 
             if (hasChanges) {
               try {
@@ -383,9 +429,9 @@ export default function Products() {
                 await productService.update(existing.$id, {
                   sku_code: skuCode,
                   name,
-                  price,
+                  cost,
                 })
-                productCache.set(barcode, { ...existing, name, sku_code: skuCode || null, price })
+                productCache.set(barcode, { ...existing, name, sku_code: skuCode || null, cost })
                 updated++
               } catch {
                 failed++
@@ -401,14 +447,14 @@ export default function Products() {
                 sku_code: skuCode,
                 name,
                 type: 'single',
-                price,
+                cost,
               })
               productMap.set(barcode, newProduct.$id)
               productCache.set(barcode, {
                 $id: newProduct.$id,
                 name,
                 sku_code: skuCode || null,
-                price,
+                cost,
                 type: 'single',
               })
               imported++
@@ -430,7 +476,7 @@ export default function Products() {
             const hasChanges = existing && (
               existing.name !== bundle.name ||
               existing.sku_code !== (bundle.sku_code || null) ||
-              existing.price !== bundle.price
+              existing.cost !== bundle.cost
             )
 
             if (hasChanges) {
@@ -438,7 +484,7 @@ export default function Products() {
               await productService.update(bundle.existingId, {
                 sku_code: bundle.sku_code,
                 name: bundle.name,
-                price: bundle.price,
+                cost: bundle.cost,
               })
             }
             bundleId = bundle.existingId
@@ -454,7 +500,7 @@ export default function Products() {
               sku_code: bundle.sku_code,
               name: bundle.name,
               type: 'bundle',
-              price: bundle.price,
+              cost: bundle.cost,
             })
             bundleId = newBundle.$id
             productMap.set(bundle.barcode, bundleId)
@@ -532,7 +578,8 @@ export default function Products() {
             sku_code: data.sku_code || undefined,
             name: data.name,
             type: data.type,
-            price: data.price,
+            cost: data.cost,
+            stock_quantity: data.type === 'single' ? data.stock_quantity : 0,
             bundleItems: data.bundleItems,
           },
         })
@@ -543,7 +590,8 @@ export default function Products() {
           sku_code: data.sku_code || undefined,
           name: data.name,
           type: data.type,
-          price: data.price,
+          cost: data.cost,
+          stock_quantity: data.type === 'single' ? data.stock_quantity : 0,
           bundleItems: data.bundleItems,
         })
       }
@@ -579,22 +627,23 @@ export default function Products() {
     setInitialBundleItems([])
   }
 
-  // Client-side filtering with debounced search
-  const filteredProducts = useMemo(() => {
-    if (!debouncedSearch) return products
-    const query = debouncedSearch.toLowerCase()
-    return products.filter((product) =>
-      product.barcode.toLowerCase().includes(query) ||
-      product.name?.toLowerCase().includes(query) ||
-      product.sku_code?.toLowerCase().includes(query)
-    )
-  }, [products, debouncedSearch])
 
-  const formatPrice = (price: number) => {
+  const formatCost = (cost: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-    }).format(price)
+    }).format(cost)
+  }
+
+  // Column width proportions: 1 - 1 - 2.5 - 1 - 1 - 1 - 1 = 8.5 total
+  const COLUMN_WIDTHS: Record<string, string> = {
+    barcode: `${(1 / 8.5) * 100}%`,
+    sku_code: `${(1 / 8.5) * 100}%`,
+    name: `${(2.5 / 8.5) * 100}%`,
+    type: `${(1 / 8.5) * 100}%`,
+    stock_quantity: `${(1 / 8.5) * 100}%`,
+    cost: `${(1 / 8.5) * 100}%`,
+    actions: `${(1 / 8.5) * 100}%`,
   }
 
   // Define columns for React Table
@@ -602,51 +651,151 @@ export default function Products() {
     () => [
       {
         accessorKey: 'barcode',
-        header: t('products.barcode'),
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            className="-ml-4 h-8 hover:bg-transparent"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            {column.getIsSorted() === 'asc' ? (
+              <ArrowUp className="mr-2 size-4" />
+            ) : column.getIsSorted() === 'desc' ? (
+              <ArrowDown className="mr-2 size-4" />
+            ) : (
+              <ArrowUpDown className="mr-2 size-4 opacity-50" />
+            )}
+            {t('products.barcode')}
+          </Button>
+        ),
         cell: ({ row }) => (
           <span className="font-mono">{row.original.barcode}</span>
         ),
-        size: 140,
       },
       {
         accessorKey: 'sku_code',
-        header: t('products.skuCode'),
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            className="-ml-4 h-8 hover:bg-transparent"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            {column.getIsSorted() === 'asc' ? (
+              <ArrowUp className="mr-2 size-4" />
+            ) : column.getIsSorted() === 'desc' ? (
+              <ArrowDown className="mr-2 size-4" />
+            ) : (
+              <ArrowUpDown className="mr-2 size-4 opacity-50" />
+            )}
+            {t('products.skuCode')}
+          </Button>
+        ),
         cell: ({ row }) => (
           <span className="font-mono">{row.original.sku_code || '-'}</span>
         ),
-        size: 120,
       },
       {
         accessorKey: 'name',
-        header: t('products.productName'),
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            className="-ml-4 h-8 hover:bg-transparent"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            {column.getIsSorted() === 'asc' ? (
+              <ArrowUp className="mr-2 size-4" />
+            ) : column.getIsSorted() === 'desc' ? (
+              <ArrowDown className="mr-2 size-4" />
+            ) : (
+              <ArrowUpDown className="mr-2 size-4 opacity-50" />
+            )}
+            {t('products.productName')}
+          </Button>
+        ),
       },
       {
         accessorKey: 'type',
-        header: t('products.type'),
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            className="-ml-4 h-8 hover:bg-transparent"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            {column.getIsSorted() === 'asc' ? (
+              <ArrowUp className="mr-2 size-4" />
+            ) : column.getIsSorted() === 'desc' ? (
+              <ArrowDown className="mr-2 size-4" />
+            ) : (
+              <ArrowUpDown className="mr-2 size-4 opacity-50" />
+            )}
+            {t('products.type')}
+          </Button>
+        ),
         cell: ({ row }) => (
           <span
             className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
               row.original.type === 'bundle'
-                ? 'bg-purple-100 text-purple-700'
-                : 'bg-blue-100 text-blue-700'
+                ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+                : 'bg-primary/10 text-primary'
             }`}
           >
             {row.original.type === 'bundle' ? t('products.bundle') : t('products.single')}
           </span>
         ),
-        size: 100,
       },
       {
-        accessorKey: 'price',
-        header: () => <div className="text-right">{t('products.price')}</div>,
-        cell: ({ row }) => (
-          <div className="text-right">{formatPrice(row.original.price)}</div>
+        accessorKey: 'stock_quantity',
+        header: ({ column }) => (
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              className="-mr-4 h-8 hover:bg-transparent"
+              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+            >
+              {column.getIsSorted() === 'asc' ? (
+                <ArrowUp className="mr-2 size-4" />
+              ) : column.getIsSorted() === 'desc' ? (
+                <ArrowDown className="mr-2 size-4" />
+              ) : (
+                <ArrowUpDown className="mr-2 size-4 opacity-50" />
+              )}
+              {t('products.stock')}
+            </Button>
+          </div>
         ),
-        size: 100,
+        cell: ({ row }) => (
+          <div className="text-right">
+            {row.original.type === 'bundle' ? '-' : (row.original.stock_quantity ?? 0)}
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'cost',
+        header: ({ column }) => (
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              className="-mr-4 h-8 hover:bg-transparent"
+              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+            >
+              {column.getIsSorted() === 'asc' ? (
+                <ArrowUp className="mr-2 size-4" />
+              ) : column.getIsSorted() === 'desc' ? (
+                <ArrowDown className="mr-2 size-4" />
+              ) : (
+                <ArrowUpDown className="mr-2 size-4 opacity-50" />
+              )}
+              {t('products.cost')}
+            </Button>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <div className="text-right">{formatCost(row.original.cost)}</div>
+        ),
       },
       {
         id: 'actions',
         header: t('common.actions'),
+        enableSorting: false,
         cell: ({ row }) => (
           <div className="flex items-center gap-1">
             <Button
@@ -668,16 +817,20 @@ export default function Products() {
             </Button>
           </div>
         ),
-        size: 100,
       },
     ],
     [t]
   )
 
   const table = useReactTable({
-    data: filteredProducts,
+    data: products,
     columns,
+    state: {
+      sorting,
+    },
+    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
   })
 
   const { rows } = table.getRowModel()
@@ -709,6 +862,22 @@ export default function Products() {
     return () => container.removeEventListener('scroll', handleScroll)
   }, [hasMore, isLoading, isFetchingNextPage, fetchNextPage])
 
+  // Invalidate product cache when import job completes
+  useEffect(() => {
+    for (const job of activeJobs) {
+      if (
+        job.action === 'import-excel' &&
+        job.status === 'completed' &&
+        !completedImportJobIds.current.has(job.$id)
+      ) {
+        completedImportJobIds.current.add(job.$id)
+        queryClient.invalidateQueries({ queryKey: ['products'] })
+        toast.success(t('products.importRefreshed'))
+        break // Only invalidate once per completed job
+      }
+    }
+  }, [activeJobs, queryClient, t])
+
   const isSubmitting = createProduct.isPending || updateProduct.isPending || deleteProduct.isPending
 
   return (
@@ -731,7 +900,7 @@ export default function Products() {
           <Button
             variant="outline"
             onClick={handleDownloadTemplate}
-            disabled={isImporting}
+            disabled={isImporting || hasRunningImportJob}
             title={t('common.template')}
           >
             <Download className="mr-2 size-4" />
@@ -740,9 +909,9 @@ export default function Products() {
           <Button
             variant="outline"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isImporting || isLoading}
+            disabled={isImporting || hasRunningImportJob || isLoading}
           >
-            {isImporting ? (
+            {isImporting || hasRunningImportJob ? (
               <Loader2 className="mr-2 size-4 animate-spin" />
             ) : (
               <FileUp className="mr-2 size-4" />
@@ -752,9 +921,9 @@ export default function Products() {
           <Button
             variant="outline"
             onClick={handleExport}
-            disabled={isExporting || isLoading}
+            disabled={isExporting || hasRunningExportJob || isLoading}
           >
-            {isExporting ? (
+            {isExporting || hasRunningExportJob ? (
               <Loader2 className="mr-2 size-4 animate-spin" />
             ) : (
               <Download className="mr-2 size-4" />
@@ -768,15 +937,48 @@ export default function Products() {
         </div>
       </div>
 
+      {/* Recent Exports */}
+      {productExports.length > 0 && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <span className="text-muted-foreground text-sm">{t('jobs.recentExports')}:</span>
+          {productExports.map((job) => (
+            <div
+              key={job.$id}
+              className="flex items-center gap-1 rounded-md border bg-muted/50 px-2 py-1"
+            >
+              <FileSpreadsheet className="size-4 text-green-600" />
+              <span className="text-sm">
+                {formatDistanceToNow(new Date(job.created_at), { addSuffix: true })}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                onClick={() => handleDownloadExport(job)}
+                disabled={downloadExport.isPending}
+                title={t('common.download')}
+              >
+                <Download className="size-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6 text-muted-foreground hover:text-destructive"
+                onClick={() => handleDeleteExport(job)}
+                disabled={deleteJob.isPending}
+                title={t('common.remove')}
+              >
+                <X className="size-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {error && (
         <div className="bg-destructive/10 text-destructive shrink-0 rounded-md p-3 text-sm">
           {error}
         </div>
-      )}
-
-      {/* Active Jobs Panel */}
-      {user && activeJobs.length > 0 && (
-        <JobStatusPanel jobs={activeJobs} isLoading={isLoadingJobs} />
       )}
 
       <div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-center">
@@ -805,14 +1007,14 @@ export default function Products() {
       </div>
 
       <div ref={tableContainerRef} className="min-h-0 flex-1 overflow-auto rounded-md border">
-        <Table className="min-w-[600px]">
+        <Table className="min-w-[600px] table-fixed">
           <TableHeader className="bg-muted/50 sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    style={{ width: header.column.getSize() !== 150 ? header.column.getSize() : undefined }}
+                    style={{ width: COLUMN_WIDTHS[header.column.id] }}
                   >
                     {header.isPlaceholder
                       ? null
@@ -864,7 +1066,7 @@ export default function Products() {
                       {row.getVisibleCells().map((cell) => (
                         <TableCell
                           key={cell.id}
-                          style={{ width: cell.column.getSize() !== 150 ? cell.column.getSize() : undefined }}
+                          style={{ width: COLUMN_WIDTHS[cell.column.id] }}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
@@ -900,8 +1102,8 @@ export default function Products() {
         <div className="text-muted-foreground shrink-0 text-center text-sm">
           {debouncedSearch ? (
             <>
-              {t('products.foundMatching', { count: filteredProducts.length })}
-              {hasMore && ` (${products.length} / ${total})`}
+              {t('products.foundMatching', { count: total })}
+              {hasMore && ` (${products.length} ${t('common.loaded')})`}
             </>
           ) : (
             <>

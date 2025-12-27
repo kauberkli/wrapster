@@ -17,4 +17,8 @@ export default defineConfig({
     },
   },
   dirs: ["./trigger"],
+  build: {
+    // Bundle font file with the task
+    additionalFiles: ["./trigger/fonts/NotoSansSC-Regular.ttf"],
+  },
 });

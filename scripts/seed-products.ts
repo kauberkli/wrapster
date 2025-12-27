@@ -75,8 +75,8 @@ function randomNumber(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
 
-// Helper to generate random price (0.99 to 9999.99)
-function randomPrice(): number {
+// Helper to generate random cost (0.99 to 9999.99)
+function randomCost(): number {
   const base = Math.random() * 9999
   return Math.round(base * 100) / 100
 }
@@ -138,7 +138,7 @@ function generateProduct(index: number) {
     sku_code: generateSku(index),
     name: generateName(),
     type: Math.random() > 0.9 ? 'bundle' : 'single', // 10% bundles
-    price: randomPrice(),
+    cost: randomCost(),
   }
 }
 

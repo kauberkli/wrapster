@@ -20,9 +20,11 @@
     "draft": "Draft",
     "noData": "No data found",
     "download": "Download",
+    "loaded": "loaded",
     "language": "Language",
     "english": "English",
-    "chinese": "Chinese"
+    "chinese": "Chinese",
+    "remove": "Remove"
   },
   "sidebar": {
     "dashboard": "Dashboard",
@@ -52,9 +54,11 @@
     "skuCode": "SKU Code",
     "productName": "Product Name",
     "type": "Type",
-    "price": "Price",
+    "cost": "Cost",
     "single": "Single",
     "bundle": "Bundle",
+    "stock": "Stock",
+    "stockQuantity": "Stock Quantity",
     "createdAt": "Created At",
     "noProducts": "No products found",
     "clearSearch": "Clear search",
@@ -73,7 +77,8 @@
     "templateDownloaded": "Template downloaded",
     "bundleComponents": "Bundle Components",
     "enterProductDetails": "Enter the product details. Use a barcode scanner for quick entry.",
-    "updateProductDetails": "Update the product details below."
+    "updateProductDetails": "Update the product details below.",
+    "importRefreshed": "Products refreshed after import"
   },
   "packaging": {
     "title": "Packaging",
@@ -100,7 +105,13 @@
     "scanProductError": "Please scan a product barcode",
     "noActiveWaybill": "No active waybill",
     "scanAtLeastOne": "Please scan at least one product",
-    "saveError": "Failed to save packaging record"
+    "saveError": "Failed to save packaging record",
+    "stock": "Stock",
+    "insufficientStockTitle": "Insufficient Stock",
+    "insufficientStockMessage": "The following products do not have enough stock to complete this packaging record:",
+    "stockRequired": "Need {{required}}, have {{available}}",
+    "stockDeductionError": "Warning: Stock levels may not have been updated correctly",
+    "stockRestoreError": "Warning: Stock levels may not have been restored correctly"
   },
   "reports": {
     "title": "Reports",
@@ -131,7 +142,12 @@
     "itemsScanned": "Items Scanned",
     "productQuantities": "Product Quantities",
     "totalQty": "Total Qty",
-    "details": "Details"
+    "details": "Details",
+    "downloadableReports": "Downloadable Reports",
+    "downloadableReportsDescription": "Click the icons to download reports",
+    "noReportsAvailable": "No reports available yet",
+    "downloadExcel": "Download Excel",
+    "downloadPdf": "Download PDF"
   },
   "login": {
     "title": "Login",
@@ -178,6 +194,7 @@
     "startedAgo": "Started {{time}} ago",
     "viewJobs": "View background jobs",
     "jobsRunning": "{{count}} job(s) running",
+    "tasksRunning": "{{count}} task(s) running",
     "noActiveJobs": "No active jobs",
     "recentJobs": "Recent Jobs",
     "noJobs": "No jobs found",
@@ -193,6 +210,10 @@
       "processing": "Processing",
       "completed": "Completed",
       "failed": "Failed"
-    }
+    },
+    "exportReady": "Export ready",
+    "reportExportReady": "Report ready",
+    "recentExports": "Recent exports",
+    "exportDeleted": "Export removed"
   }
 }

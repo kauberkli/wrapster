@@ -28,7 +28,8 @@ const mockProduct: Product = {
   sku_code: 'SKU-001',
   name: 'Test Product',
   type: 'single',
-  price: 29.99,
+  cost: 29.99,
+  stock_quantity: 100,
 }
 
 describe('ProductForm', () => {
@@ -54,7 +55,7 @@ describe('ProductForm', () => {
       expect(screen.getByLabelText(/sku code/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/product name/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/type/i)).toBeInTheDocument()
-      expect(screen.getByLabelText(/price/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/cost/i)).toBeInTheDocument()
     })
 
     it('should render Create button in create mode', () => {
@@ -93,7 +94,7 @@ describe('ProductForm', () => {
       expect(screen.getByLabelText(/barcode/i)).toHaveValue('')
       expect(screen.getByLabelText(/sku code/i)).toHaveValue('')
       expect(screen.getByLabelText(/product name/i)).toHaveValue('')
-      expect(screen.getByLabelText(/price/i)).toHaveValue(0)
+      expect(screen.getByLabelText(/cost/i)).toHaveValue(0)
     })
 
     it('should show EAN-13 format description', () => {
@@ -135,7 +136,7 @@ describe('ProductForm', () => {
       expect(screen.getByLabelText(/barcode/i)).toHaveValue('1234567890128')
       expect(screen.getByLabelText(/sku code/i)).toHaveValue('SKU-001')
       expect(screen.getByLabelText(/product name/i)).toHaveValue('Test Product')
-      expect(screen.getByLabelText(/price/i)).toHaveValue(29.99)
+      expect(screen.getByLabelText(/cost/i)).toHaveValue(29.99)
     })
 
     it('should render Update button in edit mode', () => {
@@ -276,9 +277,9 @@ describe('ProductForm', () => {
       await userEvent.type(screen.getByLabelText(/sku code/i), 'NEW-SKU')
       await userEvent.type(screen.getByLabelText(/product name/i), 'New Product')
 
-      const priceInput = screen.getByLabelText(/price/i)
-      await userEvent.clear(priceInput)
-      await userEvent.type(priceInput, '49.99')
+      const costInput = screen.getByLabelText(/cost/i)
+      await userEvent.clear(costInput)
+      await userEvent.type(costInput, '49.99')
 
       await userEvent.click(screen.getByRole('button', { name: 'Create' }))
 
@@ -288,7 +289,7 @@ describe('ProductForm', () => {
           sku_code: 'NEW-SKU',
           name: 'New Product',
           type: 'single',
-          price: 49.99,
+          cost: 49.99,
         })
       })
     })
@@ -390,7 +391,7 @@ describe('ProductForm', () => {
       expect(screen.getByLabelText(/barcode/i)).toBeDisabled()
       expect(screen.getByLabelText(/sku code/i)).toBeDisabled()
       expect(screen.getByLabelText(/product name/i)).toBeDisabled()
-      expect(screen.getByLabelText(/price/i)).toBeDisabled()
+      expect(screen.getByLabelText(/cost/i)).toBeDisabled()
     })
 
     it('should disable buttons when isLoading is true', () => {
@@ -444,8 +445,8 @@ describe('ProductForm', () => {
     })
   })
 
-  describe('Price Input', () => {
-    it('should accept decimal prices', async () => {
+  describe('Cost Input', () => {
+    it('should accept decimal costs', async () => {
       render(
         <ProductForm
           onSubmit={mockOnSubmit}
@@ -455,24 +456,24 @@ describe('ProductForm', () => {
       )
 
       await userEvent.type(screen.getByLabelText(/barcode/i), '1234567890128')
-      await userEvent.type(screen.getByLabelText(/product name/i), 'Decimal Price')
+      await userEvent.type(screen.getByLabelText(/product name/i), 'Decimal Cost')
 
-      const priceInput = screen.getByLabelText(/price/i)
-      await userEvent.clear(priceInput)
-      await userEvent.type(priceInput, '99.95')
+      const costInput = screen.getByLabelText(/cost/i)
+      await userEvent.clear(costInput)
+      await userEvent.type(costInput, '99.95')
 
       await userEvent.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
-            price: 99.95,
+            cost: 99.95,
           })
         )
       })
     })
 
-    it('should default price to 0', async () => {
+    it('should default cost to 0', async () => {
       render(
         <ProductForm
           onSubmit={mockOnSubmit}
@@ -482,13 +483,13 @@ describe('ProductForm', () => {
       )
 
       await userEvent.type(screen.getByLabelText(/barcode/i), '1234567890128')
-      await userEvent.type(screen.getByLabelText(/product name/i), 'Zero Price')
+      await userEvent.type(screen.getByLabelText(/product name/i), 'Zero Cost')
       await userEvent.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
-            price: 0,
+            cost: 0,
           })
         )
       })
@@ -707,7 +708,7 @@ describe('ProductForm', () => {
       expect(screen.getByPlaceholderText(/enter product name/i)).toBeInTheDocument()
     })
 
-    it('should show placeholder text for price', () => {
+    it('should show placeholder text for cost', () => {
       render(
         <ProductForm
           onSubmit={mockOnSubmit}
@@ -732,8 +733,8 @@ describe('ProductForm', () => {
     })
   })
 
-  describe('Price Validation', () => {
-    it('should accept zero price', async () => {
+  describe('Cost Validation', () => {
+    it('should accept zero cost', async () => {
       render(
         <ProductForm
           onSubmit={mockOnSubmit}
@@ -745,22 +746,22 @@ describe('ProductForm', () => {
       await userEvent.type(screen.getByLabelText(/barcode/i), '1234567890128')
       await userEvent.type(screen.getByLabelText(/product name/i), 'Free Product')
 
-      const priceInput = screen.getByLabelText(/price/i)
-      await userEvent.clear(priceInput)
-      await userEvent.type(priceInput, '0')
+      const costInput = screen.getByLabelText(/cost/i)
+      await userEvent.clear(costInput)
+      await userEvent.type(costInput, '0')
 
       await userEvent.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
-            price: 0,
+            cost: 0,
           })
         )
       })
     })
 
-    it('should accept price with two decimal places', async () => {
+    it('should accept cost with two decimal places', async () => {
       render(
         <ProductForm
           onSubmit={mockOnSubmit}
@@ -772,22 +773,22 @@ describe('ProductForm', () => {
       await userEvent.type(screen.getByLabelText(/barcode/i), '1234567890128')
       await userEvent.type(screen.getByLabelText(/product name/i), 'Test Product')
 
-      const priceInput = screen.getByLabelText(/price/i)
-      await userEvent.clear(priceInput)
-      await userEvent.type(priceInput, '19.99')
+      const costInput = screen.getByLabelText(/cost/i)
+      await userEvent.clear(costInput)
+      await userEvent.type(costInput, '19.99')
 
       await userEvent.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
-            price: 19.99,
+            cost: 19.99,
           })
         )
       })
     })
 
-    it('should accept high value prices', async () => {
+    it('should accept high value costs', async () => {
       render(
         <ProductForm
           onSubmit={mockOnSubmit}
@@ -799,16 +800,16 @@ describe('ProductForm', () => {
       await userEvent.type(screen.getByLabelText(/barcode/i), '1234567890128')
       await userEvent.type(screen.getByLabelText(/product name/i), 'Expensive Product')
 
-      const priceInput = screen.getByLabelText(/price/i)
-      await userEvent.clear(priceInput)
-      await userEvent.type(priceInput, '999999.99')
+      const costInput = screen.getByLabelText(/cost/i)
+      await userEvent.clear(costInput)
+      await userEvent.type(costInput, '999999.99')
 
       await userEvent.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
-            price: 999999.99,
+            cost: 999999.99,
           })
         )
       })

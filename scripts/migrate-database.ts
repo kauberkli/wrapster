@@ -2,7 +2,7 @@
  * Appwrite Database Migration Script
  *
  * This script creates all tables in the database:
- * 1. products - Master product list with SKU, barcode, name, type, and price
+ * 1. products - Master product list with SKU, barcode, name, type, and cost
  * 2. product_components - Bundle recipe linking parent products to child products
  * 3. packaging_records - Waybill tracking with date (unique per date)
  * 4. packaging_items - Individual product scans linked to packaging records
@@ -18,9 +18,13 @@
  *   APPWRITE_API_KEY          - Server API key with databases.write permission
  */
 
-import 'dotenv/config'
+import dotenv from 'dotenv'
 
-import { Client, IndexType, Permission, Role, TablesDB } from 'node-appwrite'
+// Load environment variables from both .env and .env.local
+dotenv.config()
+dotenv.config({ path: '.env.local' })
+
+import { Client, IndexType, Permission, Role, Storage, TablesDB } from 'node-appwrite'
 
 // Configuration
 const config = {
@@ -28,6 +32,7 @@ const config = {
   projectId: process.env.VITE_APPWRITE_PROJECT_ID || '',
   apiKey: process.env.APPWRITE_API_KEY || '',
   databaseId: process.env.VITE_APPWRITE_DATABASE_ID || '',
+  bucketId: process.env.VITE_APPWRITE_BUCKET_ID || 'exports',
 }
 
 // Table IDs
@@ -46,6 +51,7 @@ const client = new Client()
   .setKey(config.apiKey)
 
 const tablesDB = new TablesDB(client)
+const storage = new Storage(client)
 
 // Helper function to wait (Appwrite needs time between column creations)
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -167,15 +173,28 @@ async function createProductsTable() {
         }),
     },
     {
-      key: 'price',
+      key: 'cost',
       create: () =>
         tablesDB.createFloatColumn({
           databaseId: config.databaseId,
           tableId: TABLES.PRODUCTS,
-          key: 'price',
+          key: 'cost',
           required: false,
           min: 0,
           max: 9999999999.99,
+        }),
+    },
+    {
+      key: 'stock_quantity',
+      create: () =>
+        tablesDB.createIntegerColumn({
+          databaseId: config.databaseId,
+          tableId: TABLES.PRODUCTS,
+          key: 'stock_quantity',
+          required: false,
+          min: 0,
+          max: 999999999,
+          xdefault: 0,
         }),
     },
   ]
@@ -642,7 +661,7 @@ async function createImportJobsTable() {
           databaseId: config.databaseId,
           tableId: TABLES.IMPORT_JOBS,
           key: 'action',
-          elements: ['import', 'export'],
+          elements: ['import-excel', 'export-excel', 'export-reporting-excel', 'export-reporting-pdf'],
           required: true,
         }),
     },
@@ -791,6 +810,28 @@ async function createImportJobsTable() {
           columns: ['user_id', 'status'],
         }),
     },
+    {
+      key: 'idx_completed_at',
+      create: () =>
+        tablesDB.createIndex({
+          databaseId: config.databaseId,
+          tableId: TABLES.IMPORT_JOBS,
+          key: 'idx_completed_at',
+          type: IndexType.Key,
+          columns: ['completed_at'],
+        }),
+    },
+    {
+      key: 'idx_created_at',
+      create: () =>
+        tablesDB.createIndex({
+          databaseId: config.databaseId,
+          tableId: TABLES.IMPORT_JOBS,
+          key: 'idx_created_at',
+          type: IndexType.Key,
+          columns: ['created_at'],
+        }),
+    },
   ]
 
   for (const idx of indexes) {
@@ -804,6 +845,46 @@ async function createImportJobsTable() {
   }
 
   console.log('Import Jobs table setup complete!')
+}
+
+/**
+ * Create storage bucket for export files
+ */
+async function createExportsBucket() {
+  console.log('\n--- Creating Exports Storage Bucket ---')
+
+  try {
+    // Check if bucket already exists
+    await storage.getBucket(config.bucketId)
+    console.log(`Bucket "${config.bucketId}" already exists, skipping creation...`)
+  } catch {
+    // Bucket doesn't exist, create it
+    await storage.createBucket(
+      config.bucketId,
+      'Exports',
+      [
+        Permission.read(Role.users()),
+        Permission.create(Role.users()),
+        Permission.update(Role.users()),
+        Permission.delete(Role.users()),
+      ],
+      false, // fileSecurity
+      true, // enabled
+      50 * 1024 * 1024, // maximumFileSize: 50MB
+      [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+        'application/vnd.ms-excel', // xls
+        'application/pdf',
+        'text/csv',
+      ], // allowedFileExtensions
+      undefined, // compression
+      true, // encryption
+      false // antivirus
+    )
+    console.log(`Created bucket: ${config.bucketId}`)
+  }
+
+  console.log('Exports bucket setup complete!')
 }
 
 /**
@@ -831,25 +912,30 @@ async function migrate() {
   console.log(`\nEndpoint: ${config.endpoint}`)
   console.log(`Project: ${config.projectId}`)
   console.log(`Database: ${config.databaseId}`)
+  console.log(`Bucket: ${config.bucketId}`)
 
   const tables = Object.values(TABLES)
   console.log(`\nTables to create: ${tables.join(', ')}`)
+  console.log(`Storage bucket to create: ${config.bucketId}`)
 
   try {
     // Verify database exists
     await tablesDB.get({ databaseId: config.databaseId })
     console.log('\nDatabase connection verified!')
 
-    // Run all migrations
+    // Run all table migrations
     await createProductsTable()
     await createProductComponentsTable()
     await createPackagingRecordsTable()
     await createPackagingItemsTable()
     await createImportJobsTable()
 
+    // Create storage bucket
+    await createExportsBucket()
+
     console.log('\n' + '='.repeat(50))
     console.log('Migration completed successfully!')
-    console.log(`Created/verified ${tables.length} tables`)
+    console.log(`Created/verified ${tables.length} tables and 1 storage bucket`)
     console.log('='.repeat(50))
   } catch (error) {
     console.error('\nMigration failed:', error)

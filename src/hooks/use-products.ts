@@ -12,6 +12,7 @@ const PAGE_SIZE = 50
 
 interface ProductsQueryParams {
   type?: ProductType
+  search?: string
 }
 
 interface ProductsPage {
@@ -22,10 +23,11 @@ interface ProductsPage {
 
 export function useProducts(params: ProductsQueryParams = {}) {
   return useInfiniteQuery<ProductsPage>({
-    queryKey: [PRODUCTS_QUERY_KEY, params.type],
+    queryKey: [PRODUCTS_QUERY_KEY, params.type, params.search],
     queryFn: async ({ pageParam = 0 }) => {
       const result = await productService.list({
         type: params.type,
+        search: params.search || undefined,
         limit: PAGE_SIZE,
         offset: pageParam as number,
       })
@@ -51,7 +53,8 @@ interface CreateProductInput {
   sku_code?: string
   name: string
   type: ProductType
-  price: number
+  cost: number
+  stock_quantity?: number
   bundleItems?: string[]
 }
 
@@ -65,7 +68,8 @@ export function useCreateProduct() {
         sku_code: data.sku_code,
         name: data.name,
         type: data.type,
-        price: data.price,
+        cost: data.cost,
+        stock_quantity: data.stock_quantity,
       })
 
       // Handle bundle components
@@ -112,7 +116,8 @@ interface UpdateProductInput {
     sku_code?: string
     name: string
     type: ProductType
-    price: number
+    cost: number
+    stock_quantity?: number
     bundleItems?: string[]
   }
 }
@@ -126,7 +131,8 @@ export function useUpdateProduct() {
         sku_code: data.sku_code,
         name: data.name,
         type: data.type,
-        price: data.price,
+        cost: data.cost,
+        stock_quantity: data.stock_quantity,
       })
 
       // Handle bundle components

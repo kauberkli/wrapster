@@ -20,7 +20,8 @@ export const productService = {
       barcode: data.barcode,
       name: data.name,
       type: data.type ?? 'single',
-      price: data.price ?? 0,
+      cost: data.cost ?? 0,
+      stock_quantity: data.stock_quantity ?? 0,
     })
   },
 
@@ -68,7 +69,14 @@ export const productService = {
       queries.push(Query.equal('type', options.type))
     }
     if (options?.search) {
-      queries.push(Query.search('name', options.search))
+      // Search across barcode, name, and sku_code using OR
+      queries.push(
+        Query.or([
+          Query.contains('barcode', options.search),
+          Query.contains('name', options.search),
+          Query.contains('sku_code', options.search),
+        ])
+      )
     }
     if (options?.limit) {
       queries.push(Query.limit(options.limit))
@@ -147,6 +155,192 @@ export const productService = {
       ...product,
       components,
     }
+  },
+
+  /**
+   * Update stock quantity for a product
+   */
+  async updateStock(productId: string, newQuantity: number): Promise<Product> {
+    return databaseService.updateDocument<Product>(
+      COLLECTIONS.PRODUCTS,
+      productId,
+      { stock_quantity: Math.max(0, newQuantity) }
+    )
+  },
+
+  /**
+   * Calculate stock requirements for a list of packaging items
+   * Returns a map of product ID to required quantity
+   */
+  async calculateStockRequirements(
+    items: Array<{
+      product_barcode: string
+      is_bundle?: boolean
+      bundle_components?: Array<{
+        product: Product
+        quantity: number
+      }>
+    }>
+  ): Promise<Map<string, { product: Product; required: number }>> {
+    const requirements = new Map<string, { product: Product; required: number }>()
+
+    for (const item of items) {
+      if (item.is_bundle && item.bundle_components) {
+        // For bundles, deduct from each component
+        for (const component of item.bundle_components) {
+          const productId = component.product.$id
+          const existing = requirements.get(productId)
+          if (existing) {
+            existing.required += component.quantity
+          } else {
+            requirements.set(productId, {
+              product: component.product,
+              required: component.quantity,
+            })
+          }
+        }
+      } else {
+        // For single products, deduct 1
+        const product = await this.getByBarcode(item.product_barcode)
+        if (product) {
+          const existing = requirements.get(product.$id)
+          if (existing) {
+            existing.required += 1
+          } else {
+            requirements.set(product.$id, { product, required: 1 })
+          }
+        }
+      }
+    }
+
+    return requirements
+  },
+
+  /**
+   * Validate that there is sufficient stock for packaging
+   */
+  async validateStockForPackaging(
+    items: Array<{
+      product_barcode: string
+      is_bundle?: boolean
+      bundle_components?: Array<{
+        product: Product
+        quantity: number
+      }>
+    }>
+  ): Promise<{
+    valid: boolean
+    insufficientStock: Array<{
+      barcode: string
+      name: string
+      required: number
+      available: number
+    }>
+  }> {
+    const requirements = await this.calculateStockRequirements(items)
+    const insufficientStock: Array<{
+      barcode: string
+      name: string
+      required: number
+      available: number
+    }> = []
+
+    for (const [, { product, required }] of requirements) {
+      // Re-fetch product to get latest stock (in case of concurrent updates)
+      const latestProduct = await this.getById(product.$id)
+      if (latestProduct.stock_quantity < required) {
+        insufficientStock.push({
+          barcode: latestProduct.barcode,
+          name: latestProduct.name,
+          required,
+          available: latestProduct.stock_quantity,
+        })
+      }
+    }
+
+    return {
+      valid: insufficientStock.length === 0,
+      insufficientStock,
+    }
+  },
+
+  /**
+   * Deduct stock for packaging items
+   * Should be called after packaging record is successfully created
+   */
+  async deductStockForPackaging(
+    items: Array<{
+      product_barcode: string
+      is_bundle?: boolean
+      bundle_components?: Array<{
+        product: Product
+        quantity: number
+      }>
+    }>
+  ): Promise<{ success: boolean; errors: string[] }> {
+    const requirements = await this.calculateStockRequirements(items)
+    const errors: string[] = []
+    const updatedProducts: Array<{ productId: string; previousStock: number }> = []
+
+    for (const [productId, { product, required }] of requirements) {
+      try {
+        const latestProduct = await this.getById(productId)
+        const newStock = latestProduct.stock_quantity - required
+
+        if (newStock < 0) {
+          errors.push(`Insufficient stock for ${product.name}: required ${required}, available ${latestProduct.stock_quantity}`)
+          continue
+        }
+
+        updatedProducts.push({ productId, previousStock: latestProduct.stock_quantity })
+        await this.updateStock(productId, newStock)
+      } catch (error) {
+        errors.push(`Failed to update stock for ${product.name}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+    }
+
+    // If there were errors, attempt to rollback successful updates
+    if (errors.length > 0) {
+      for (const { productId, previousStock } of updatedProducts) {
+        try {
+          await this.updateStock(productId, previousStock)
+        } catch {
+          // Log but don't throw - we're already in error recovery
+          console.error(`Failed to rollback stock for product ${productId}`)
+        }
+      }
+    }
+
+    return { success: errors.length === 0, errors }
+  },
+
+  /**
+   * Restore stock when a packaging record is deleted
+   */
+  async restoreStockForPackaging(
+    items: Array<{
+      product_barcode: string
+      is_bundle?: boolean
+      bundle_components?: Array<{
+        product: Product
+        quantity: number
+      }>
+    }>
+  ): Promise<{ success: boolean; errors: string[] }> {
+    const requirements = await this.calculateStockRequirements(items)
+    const errors: string[] = []
+
+    for (const [productId, { product, required }] of requirements) {
+      try {
+        const latestProduct = await this.getById(productId)
+        const newStock = latestProduct.stock_quantity + required
+        await this.updateStock(productId, newStock)
+      } catch (error) {
+        errors.push(`Failed to restore stock for ${product.name}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+    }
+
+    return { success: errors.length === 0, errors }
   },
 }
 

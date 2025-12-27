@@ -3,7 +3,7 @@ import type { Models } from 'appwrite'
 /**
  * Job action type
  */
-export type JobAction = 'import' | 'export' | 'report-export'
+export type JobAction = 'import-excel' | 'export-excel' | 'export-reporting-excel' | 'export-reporting-pdf'
 
 /**
  * Job status type

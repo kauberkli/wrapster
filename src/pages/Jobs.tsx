@@ -63,36 +63,39 @@ export default function Jobs() {
   }
 
   const getActionIcon = (action: string) => {
-    switch (action) {
-      case 'import':
-        return <FileUp className="size-5" />
-      case 'export':
-        return <Download className="size-5" />
-      case 'report-export':
-        return <FileSpreadsheet className="size-5" />
-      default:
-        return null
+    if (action === 'import-excel') {
+      return <FileUp className="size-5" />
     }
+    if (action === 'export-excel') {
+      return <Download className="size-5" />
+    }
+    if (action.includes('reporting')) {
+      return <FileSpreadsheet className="size-5" />
+    }
+    return null
   }
 
   const getActionLabel = (action: string) => {
-    switch (action) {
-      case 'import':
-        return t('jobs.import')
-      case 'export':
-        return t('jobs.export')
-      case 'report-export':
-        return t('jobs.reportExport')
-      default:
-        return action
+    if (action === 'import-excel') {
+      return t('jobs.import')
     }
+    if (action === 'export-excel') {
+      return t('jobs.export')
+    }
+    if (action.includes('reporting')) {
+      return t('jobs.reportExport')
+    }
+    return action
   }
 
   const handleDownload = async (job: ParsedJob) => {
     if (job.result_file_id) {
       const date = new Date(job.created_at).toISOString().split('T')[0]
-      const fileName = job.action === 'report-export'
-        ? `packaging_report_${date}.xlsx`
+      const isPdf = job.action === 'export-reporting-pdf'
+      const isReport = job.action.includes('reporting')
+      const ext = isPdf ? 'pdf' : 'xlsx'
+      const fileName = isReport
+        ? `packaging_report_${date}.${ext}`
         : `products_export_${date}.xlsx`
       await downloadExport.mutateAsync({
         fileId: job.result_file_id,
@@ -208,7 +211,7 @@ export default function Jobs() {
                     </div>
                   </div>
                   {job.status === 'completed' &&
-                    (job.action === 'export' || job.action === 'report-export') &&
+                    (job.action === 'export-excel' || job.action.includes('reporting')) &&
                     job.result_file_id && (
                       <Button
                         variant="outline"

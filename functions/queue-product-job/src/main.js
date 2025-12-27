@@ -4,7 +4,7 @@ const COLLECTIONS = {
   IMPORT_JOBS: "import_jobs",
 };
 
-const VALID_ACTIONS = ["import", "export", "report-export"];
+const VALID_ACTIONS = ["import-excel", "export-excel", "export-reporting-excel", "export-reporting-pdf"];
 
 module.exports = async (context) => {
   const { req, res, log, error } = context;
@@ -25,16 +25,16 @@ module.exports = async (context) => {
       return res.json({ error: "Missing required fields: action, userId" }, 400);
     }
 
-    if (action === "import" && !fileId) {
+    if (action === "import-excel" && !fileId) {
       return res.json({ error: "Missing fileId for import action" }, 400);
     }
 
-    if (action === "report-export" && (!startDate || !endDate)) {
-      return res.json({ error: "Missing startDate or endDate for report-export action" }, 400);
+    if ((action === "export-reporting-excel" || action === "export-reporting-pdf") && (!startDate || !endDate)) {
+      return res.json({ error: "Missing startDate or endDate for report export" }, 400);
     }
 
     if (!VALID_ACTIONS.includes(action)) {
-      return res.json({ error: "Invalid action. Must be 'import', 'export', or 'report-export'" }, 400);
+      return res.json({ error: "Invalid action. Must be one of: import-excel, export-excel, export-reporting-excel, export-reporting-pdf" }, 400);
     }
 
     log(`Processing ${action} job for user ${userId}`);
@@ -59,7 +59,7 @@ module.exports = async (context) => {
     };
 
     // Add report-specific metadata
-    if (action === "report-export") {
+    if (action === "export-reporting-excel" || action === "export-reporting-pdf") {
       jobData.filters = JSON.stringify({ startDate, endDate, format: format || "excel" });
     }
 
@@ -75,34 +75,49 @@ module.exports = async (context) => {
 
     // Dispatch to Trigger.dev
     try {
-      const { tasks } = require("@trigger.dev/sdk/v3");
+      if (!process.env.TRIGGER_SECRET_KEY) {
+        throw new Error("TRIGGER_SECRET_KEY environment variable is not set");
+      }
 
-      if (action === "import") {
+      const { tasks, configure } = require("@trigger.dev/sdk/v3");
+
+      // Configure the SDK with the secret key
+      configure({
+        secretKey: process.env.TRIGGER_SECRET_KEY,
+      });
+
+      log(`Triggering ${action} task with Trigger.dev...`);
+
+      if (action === "import-excel") {
         await tasks.trigger("product-import", {
           jobId: job.$id,
           fileId: fileId,
           userId,
         });
         log(`Triggered product-import task for job ${job.$id}`);
-      } else if (action === "export") {
+      } else if (action === "export-excel") {
+        // Product export
         await tasks.trigger("product-export", {
           jobId: job.$id,
           userId,
           filters,
         });
         log(`Triggered product-export task for job ${job.$id}`);
-      } else if (action === "report-export") {
-        await tasks.trigger("report-export", {
+      } else if (action === "export-reporting-excel" || action === "export-reporting-pdf") {
+        // Report export (packaging report)
+        const payload = {
           jobId: job.$id,
           userId,
           startDate,
           endDate,
-          format: format || "excel",
-        });
+          format: action === "export-reporting-pdf" ? "pdf" : "excel",
+        };
+        log(`Report export payload: ${JSON.stringify(payload)}`);
+        await tasks.trigger("report-export", payload);
         log(`Triggered report-export task for job ${job.$id}`);
       }
     } catch (triggerError) {
-      error(`Failed to trigger task: ${triggerError}`);
+      error(`Failed to trigger task: ${triggerError.message || triggerError}`);
 
       // Update job status to failed
       await databases.updateDocument(databaseId, COLLECTIONS.IMPORT_JOBS, job.$id, {

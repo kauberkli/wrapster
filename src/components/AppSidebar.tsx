@@ -1,8 +1,7 @@
-import { BarChart3, Box, LayoutDashboard, ListTodo, LogOut, Package, PackageOpen, Tags } from 'lucide-react'
+import { BarChart3, Box, LayoutDashboard, ListTodo, Loader2, LogOut, Package, PackageOpen, Tags } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 
-import { JobIndicator } from '@/components/jobs/JobIndicator'
 import {
   Sidebar,
   SidebarContent,
@@ -16,6 +15,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { useAuth } from '@/contexts/AuthContext'
+import { useActiveJobs } from '@/hooks/use-jobs'
 
 const navItems = [
   { titleKey: 'sidebar.dashboard', url: '/dashboard', icon: LayoutDashboard },
@@ -23,14 +23,19 @@ const navItems = [
   { titleKey: 'sidebar.unpack', url: '/unpack', icon: PackageOpen },
   { titleKey: 'sidebar.products', url: '/products', icon: Tags },
   { titleKey: 'sidebar.reports', url: '/reports', icon: BarChart3 },
-  { titleKey: 'sidebar.jobs', url: '/jobs', icon: ListTodo },
 ]
 
 export function AppSidebar() {
   const { t } = useTranslation()
   const location = useLocation()
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
   const { setOpenMobile, isMobile } = useSidebar()
+  const { data: activeJobs = [] } = useActiveJobs(user?.$id || '', !!user)
+
+  // Count active jobs (pending or processing)
+  const pendingCount = activeJobs.filter(j => j.status === 'pending').length
+  const processingCount = activeJobs.filter(j => j.status === 'processing').length
+  const totalActive = pendingCount + processingCount
 
   const handleNavClick = () => {
     if (isMobile) {
@@ -73,10 +78,33 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname === '/jobs'}
+                  tooltip={totalActive > 0
+                    ? `${t('sidebar.jobs')} - ${t('jobs.tasksRunning', { count: totalActive })}`
+                    : t('sidebar.jobs')
+                  }
+                >
+                  <Link to="/jobs" onClick={handleNavClick}>
+                    {totalActive > 0 ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <ListTodo />
+                    )}
+                    <span>
+                      {t('sidebar.jobs')}
+                      {totalActive > 0 && (
+                        <span className="text-muted-foreground"> - {t('jobs.tasksRunning', { count: totalActive })}</span>
+                      )}
+                    </span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        <JobIndicator />
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

@@ -22,7 +22,8 @@ const mockProducts: Product[] = [
     sku_code: 'SKU-001',
     name: 'Test Product 1',
     type: 'single',
-    price: 29.99,
+    cost: 29.99,
+    stock_quantity: 100,
   },
   {
     $id: 'prod-2',
@@ -36,7 +37,8 @@ const mockProducts: Product[] = [
     sku_code: 'SKU-002',
     name: 'Test Bundle',
     type: 'bundle',
-    price: 59.99,
+    cost: 59.99,
+    stock_quantity: 0,
   },
   {
     $id: 'prod-3',
@@ -50,7 +52,8 @@ const mockProducts: Product[] = [
     sku_code: null,
     name: 'Product Without SKU',
     type: 'single',
-    price: 15.00,
+    cost: 15.00,
+    stock_quantity: 50,
   },
 ]
 
@@ -189,7 +192,7 @@ describe('Products Page', () => {
         expect(screen.getByRole('columnheader', { name: 'SKU' })).toBeInTheDocument()
         expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument()
         expect(screen.getByRole('columnheader', { name: 'Type' })).toBeInTheDocument()
-        expect(screen.getByRole('columnheader', { name: 'Price' })).toBeInTheDocument()
+        expect(screen.getByRole('columnheader', { name: 'Cost' })).toBeInTheDocument()
         expect(screen.getByRole('columnheader', { name: 'Actions' })).toBeInTheDocument()
       })
     })
@@ -453,7 +456,7 @@ describe('Products Page', () => {
       // Fill in the form
       await userEvent.type(screen.getByLabelText(/barcode/i), '1234567890128')
       await userEvent.type(screen.getByLabelText(/product name/i), 'New Product')
-      await userEvent.type(screen.getByLabelText(/price/i), '19.99')
+      await userEvent.type(screen.getByLabelText(/cost/i), '19.99')
 
       await userEvent.click(screen.getByRole('button', { name: 'Create' }))
 
@@ -696,8 +699,8 @@ describe('Products Page', () => {
     })
   })
 
-  describe('Price Formatting', () => {
-    it('should format prices correctly', async () => {
+  describe('Cost Formatting', () => {
+    it('should format costs correctly', async () => {
       render(<Products />, { wrapper: TestWrapper })
 
       await waitFor(() => {
@@ -1001,12 +1004,12 @@ describe('Products Page', () => {
     })
   })
 
-  describe('Zero Price Products', () => {
-    it('should format zero price correctly', async () => {
+  describe('Zero Cost Products', () => {
+    it('should format zero cost correctly', async () => {
       const zeroProduct: Product = {
         ...mockProducts[0],
         $id: 'prod-zero',
-        price: 0,
+        cost: 0,
       }
 
       mockProductService.list.mockResolvedValue({
@@ -1023,11 +1026,11 @@ describe('Products Page', () => {
   })
 
   describe('High Value Products', () => {
-    it('should format high prices correctly with thousands separator', async () => {
+    it('should format high costs correctly with thousands separator', async () => {
       const expensiveProduct: Product = {
         ...mockProducts[0],
         $id: 'prod-expensive',
-        price: 1234567.89,
+        cost: 1234567.89,
       }
 
       mockProductService.list.mockResolvedValue({

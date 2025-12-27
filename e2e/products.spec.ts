@@ -56,7 +56,7 @@ test.describe('Products Page', () => {
       await expect(page.getByRole('columnheader', { name: 'SKU' })).toBeVisible()
       await expect(page.getByRole('columnheader', { name: 'Name' })).toBeVisible()
       await expect(page.getByRole('columnheader', { name: 'Type' })).toBeVisible()
-      await expect(page.getByRole('columnheader', { name: 'Price' })).toBeVisible()
+      await expect(page.getByRole('columnheader', { name: 'Cost' })).toBeVisible()
       await expect(page.getByRole('columnheader', { name: 'Actions' })).toBeVisible()
     })
   })
@@ -205,7 +205,7 @@ test.describe('Products Page', () => {
       await expect(page.getByLabel(/sku code/i)).toBeVisible()
       await expect(page.getByLabel(/product name/i)).toBeVisible()
       await expect(page.getByLabel(/type/i)).toBeVisible()
-      await expect(page.getByLabel(/price/i)).toBeVisible()
+      await expect(page.getByLabel(/cost/i)).toBeVisible()
     })
 
     test('should show Create and Cancel buttons', async ({ page }) => {
@@ -261,7 +261,7 @@ test.describe('Products Page', () => {
 
       await page.getByLabel(/barcode/i).fill(barcode)
       await page.getByLabel(/product name/i).fill(productName)
-      await page.getByLabel(/price/i).fill('19.99')
+      await page.getByLabel(/cost/i).fill('19.99')
       await page.getByRole('button', { name: 'Create' }).click()
 
       // Dialog should close
@@ -458,7 +458,7 @@ test.describe('Products Page', () => {
       await page.getByLabel(/barcode/i).fill(barcode)
       await page.getByLabel(/product name/i).fill(productName)
       await page.getByLabel(/sku code/i).fill('CRUD-TEST-SKU')
-      await page.getByLabel(/price/i).fill('99.99')
+      await page.getByLabel(/cost/i).fill('99.99')
       await page.getByRole('button', { name: 'Create' }).click()
 
       await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 10000 })
@@ -476,9 +476,9 @@ test.describe('Products Page', () => {
       await nameInput.clear()
       await nameInput.fill(updatedName)
 
-      const priceInput = page.getByLabel(/price/i)
-      await priceInput.clear()
-      await priceInput.fill('149.99')
+      const costInput = page.getByLabel(/cost/i)
+      await costInput.clear()
+      await costInput.fill('149.99')
 
       await page.getByRole('button', { name: 'Update' }).click()
 
@@ -527,17 +527,17 @@ test.describe('Products Page', () => {
     })
   })
 
-  test.describe('Price Display', () => {
+  test.describe('Cost Display', () => {
     test.beforeEach(async ({ page }) => {
       await login(page)
       await page.goto('/products')
       await page.waitForSelector('table tbody tr', { timeout: 10000 })
     })
 
-    test('should display prices with currency formatting', async ({ page }) => {
+    test('should display costs with currency formatting', async ({ page }) => {
       // Check for currency format ($ followed by number)
-      const priceCell = page.locator('td').filter({ hasText: /^\$[\d,]+\.\d{2}$/ }).first()
-      await expect(priceCell).toBeVisible()
+      const costCell = page.locator('td').filter({ hasText: /^\$[\d,]+\.\d{2}$/ }).first()
+      await expect(costCell).toBeVisible()
     })
   })
 
@@ -790,7 +790,7 @@ test.describe('Products Page', () => {
       await expect(page.getByLabel(/sku code/i)).toBeVisible()
       await expect(page.getByLabel(/product name/i)).toBeVisible()
       await expect(page.getByLabel(/type/i)).toBeVisible()
-      await expect(page.getByLabel(/price/i)).toBeVisible()
+      await expect(page.getByLabel(/cost/i)).toBeVisible()
     })
   })
 })

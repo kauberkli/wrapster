@@ -13,7 +13,8 @@ export interface Product extends Models.Document {
   barcode: string
   name: string
   type: ProductType
-  price: number
+  cost: number
+  stock_quantity: number // Available stock (only tracked for single products, bundles use 0)
 }
 
 /**
@@ -44,7 +45,8 @@ export type CreateProductInput = {
   barcode: string
   name: string
   type?: ProductType
-  price?: number
+  cost?: number
+  stock_quantity?: number // Defaults to 0
 }
 
 /**

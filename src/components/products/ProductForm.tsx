@@ -32,7 +32,8 @@ const productFormSchema = z.object({
   sku_code: z.string().optional(),
   name: z.string().min(1, 'Product name is required'),
   type: z.enum(['single', 'bundle']),
-  price: z.number().min(0),
+  cost: z.number().min(0),
+  stock_quantity: z.number().min(0),
 })
 
 type FormValues = z.infer<typeof productFormSchema>
@@ -71,7 +72,8 @@ export function ProductForm({
       sku_code: product?.sku_code ?? '',
       name: product?.name ?? '',
       type: (product?.type as ProductType) ?? 'single',
-      price: product?.price ?? 0,
+      cost: product?.cost ?? 0,
+      stock_quantity: product?.stock_quantity ?? 0,
     },
   })
 
@@ -246,10 +248,10 @@ export function ProductForm({
 
           <FormField
             control={form.control}
-            name="price"
+            name="cost"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('products.price')}</FormLabel>
+                <FormLabel>{t('products.cost')}</FormLabel>
                 <FormControl>
                   <Input
                     {...field}
@@ -266,6 +268,30 @@ export function ProductForm({
             )}
           />
         </div>
+
+        {/* Stock quantity field - only for single products */}
+        {selectedType === 'single' && (
+          <FormField
+            control={form.control}
+            name="stock_quantity"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('products.stockQuantity')}</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    disabled={isLoading}
+                    onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
 
         {selectedType === 'bundle' && (
           <div className="space-y-2">

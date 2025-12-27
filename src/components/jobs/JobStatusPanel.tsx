@@ -97,7 +97,11 @@ export function JobStatusPanel({ jobs, isLoading }: JobStatusPanelProps) {
                     {t(`jobs.status.${job.status}`)}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {job.action === 'import' ? t('jobs.import') : t('jobs.export')}
+                    {job.action === 'import-excel'
+                      ? t('jobs.import')
+                      : job.action.includes('reporting')
+                        ? t('jobs.reportExport')
+                        : t('jobs.export')}
                   </span>
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
@@ -118,7 +122,7 @@ export function JobStatusPanel({ jobs, isLoading }: JobStatusPanelProps) {
               </div>
             </div>
             {job.status === 'completed' &&
-              job.action === 'export' &&
+              (job.action === 'export-excel' || job.action.includes('reporting')) &&
               job.result_file_id && (
                 <Button
                   variant="outline"
