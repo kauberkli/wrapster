@@ -660,16 +660,8 @@ export default function Products() {
     }).format(cost)
   }
 
-  // Column width proportions: 1 - 1 - 2.5 - 1 - 1 - 1 - 1 = 8.5 total
-  const COLUMN_WIDTHS: Record<string, string> = {
-    barcode: `${(1 / 8.5) * 100}%`,
-    sku_code: `${(1 / 8.5) * 100}%`,
-    name: `${(2.5 / 8.5) * 100}%`,
-    type: `${(1 / 8.5) * 100}%`,
-    stock_quantity: `${(1 / 8.5) * 100}%`,
-    cost: `${(1 / 8.5) * 100}%`,
-    actions: `${(1 / 8.5) * 100}%`,
-  }
+  // Columns that should be hidden on mobile
+  const HIDDEN_ON_MOBILE = ['sku_code', 'stock_quantity', 'cost']
 
   // Define columns for React Table
   const columns = useMemo<ColumnDef<Product>[]>(
@@ -679,7 +671,7 @@ export default function Products() {
         header: ({ column }) => (
           <Button
             variant="ghost"
-            className="-ml-4 h-8 hover:bg-transparent"
+            className="w-full justify-start h-8 hover:bg-transparent"
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           >
             {column.getIsSorted() === 'asc' ? (
@@ -701,7 +693,7 @@ export default function Products() {
         header: ({ column }) => (
           <Button
             variant="ghost"
-            className="-ml-4 h-8 hover:bg-transparent"
+            className="w-full justify-start h-8 hover:bg-transparent"
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           >
             {column.getIsSorted() === 'asc' ? (
@@ -723,7 +715,7 @@ export default function Products() {
         header: ({ column }) => (
           <Button
             variant="ghost"
-            className="-ml-4 h-8 hover:bg-transparent"
+            className="w-full justify-start h-8 hover:bg-transparent"
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           >
             {column.getIsSorted() === 'asc' ? (
@@ -742,7 +734,7 @@ export default function Products() {
         header: ({ column }) => (
           <Button
             variant="ghost"
-            className="-ml-4 h-8 hover:bg-transparent"
+            className="w-full justify-start h-8 hover:bg-transparent"
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           >
             {column.getIsSorted() === 'asc' ? (
@@ -770,22 +762,20 @@ export default function Products() {
       {
         accessorKey: 'stock_quantity',
         header: ({ column }) => (
-          <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              className="-mr-4 h-8 hover:bg-transparent"
-              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-            >
-              {column.getIsSorted() === 'asc' ? (
-                <ArrowUp className="mr-2 size-4" />
-              ) : column.getIsSorted() === 'desc' ? (
-                <ArrowDown className="mr-2 size-4" />
-              ) : (
-                <ArrowUpDown className="mr-2 size-4 opacity-50" />
-              )}
-              {t('products.stock')}
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            className="w-full justify-start h-8 hover:bg-transparent"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            {column.getIsSorted() === 'asc' ? (
+              <ArrowUp className="mr-2 size-4" />
+            ) : column.getIsSorted() === 'desc' ? (
+              <ArrowDown className="mr-2 size-4" />
+            ) : (
+              <ArrowUpDown className="mr-2 size-4 opacity-50" />
+            )}
+            {t('products.stock')}
+          </Button>
         ),
         cell: ({ row }) => (
           <div className="text-right">
@@ -796,22 +786,20 @@ export default function Products() {
       {
         accessorKey: 'cost',
         header: ({ column }) => (
-          <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              className="-mr-4 h-8 hover:bg-transparent"
-              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-            >
-              {column.getIsSorted() === 'asc' ? (
-                <ArrowUp className="mr-2 size-4" />
-              ) : column.getIsSorted() === 'desc' ? (
-                <ArrowDown className="mr-2 size-4" />
-              ) : (
-                <ArrowUpDown className="mr-2 size-4 opacity-50" />
-              )}
-              {t('products.cost')}
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            className="w-full justify-start h-8 hover:bg-transparent"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            {column.getIsSorted() === 'asc' ? (
+              <ArrowUp className="mr-2 size-4" />
+            ) : column.getIsSorted() === 'desc' ? (
+              <ArrowDown className="mr-2 size-4" />
+            ) : (
+              <ArrowUpDown className="mr-2 size-4 opacity-50" />
+            )}
+            {t('products.cost')}
+          </Button>
         ),
         cell: ({ row }) => (
           <div className="text-right">{formatCost(row.original.cost)}</div>
@@ -819,10 +807,10 @@ export default function Products() {
       },
       {
         id: 'actions',
-        header: t('common.actions'),
+        header: () => <div className="text-center">{t('common.actions')}</div>,
         enableSorting: false,
         cell: ({ row }) => (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center justify-center gap-1">
             <Button
               variant="ghost"
               size="icon"
@@ -1032,14 +1020,14 @@ export default function Products() {
       </div>
 
       <div ref={tableContainerRef} className="min-h-0 flex-1 overflow-auto rounded-md border">
-        <Table className="min-w-[600px] table-fixed">
+        <Table className="w-full">
           <TableHeader className="bg-muted/50 sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    style={{ width: COLUMN_WIDTHS[header.column.id] }}
+                    className={HIDDEN_ON_MOBILE.includes(header.column.id) ? 'hidden md:table-cell' : ''}
                   >
                     {header.isPlaceholder
                       ? null
@@ -1091,7 +1079,7 @@ export default function Products() {
                       {row.getVisibleCells().map((cell) => (
                         <TableCell
                           key={cell.id}
-                          style={{ width: COLUMN_WIDTHS[cell.column.id] }}
+                          className={HIDDEN_ON_MOBILE.includes(cell.column.id) ? 'hidden md:table-cell' : ''}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>

@@ -1,27 +1,1016 @@
 {
-  "endpoint": "https://sgp.cloud.appwrite.io/v1",
-  "projectId": "694c240c0038e788d797",
-  "projectName": "Wrapster",
-  "functions": [
-    {
-      "$id": "queue-product-job",
-      "name": "Queue Product Job",
-      "runtime": "node-18.0",
-      "execute": ["users"],
-      "events": [],
-      "schedule": "",
-      "timeout": 30,
-      "enabled": true,
-      "logging": true,
-      "entrypoint": "src/main.js",
-      "commands": "npm install",
-      "path": "functions/queue-product-job",
-      "scopes": [
-        "databases.read",
-        "databases.write",
-        "files.read",
-        "files.write"
-      ]
-    }
-  ]
+    "endpoint": "https://sgp.cloud.appwrite.io/v1",
+    "projectId": "694c240c0038e788d797",
+    "projectName": "Wrapster",
+    "functions": [
+        {
+            "$id": "queue-product-job",
+            "name": "Queue Product Job - Development",
+            "runtime": "node-18.0",
+            "execute": [
+                "users"
+            ],
+            "events": [],
+            "schedule": "",
+            "timeout": 30,
+            "enabled": true,
+            "logging": true,
+            "entrypoint": "src/main.js",
+            "commands": "npm install",
+            "path": "functions/queue-product-job",
+            "scopes": [
+                "databases.read",
+                "databases.write",
+                "files.read",
+                "files.write"
+            ]
+        },
+        {
+            "$id": "queue-product-job-prod",
+            "name": "Queue Product Job - Production",
+            "runtime": "node-18.0",
+            "execute": [
+                "users"
+            ],
+            "events": [],
+            "schedule": "",
+            "timeout": 30,
+            "enabled": true,
+            "logging": true,
+            "entrypoint": "src/main.js",
+            "commands": "npm install",
+            "path": "functions/queue-product-job",
+            "scopes": [
+                "databases.read",
+                "databases.write",
+                "files.read",
+                "files.write"
+            ]
+        }
+    ],
+    "tablesDB": [
+        {
+            "$id": "694c2463003b3254009c",
+            "name": "wrapster-development",
+            "enabled": true
+        },
+        {
+            "$id": "694f3e220018c64719a5",
+            "name": "wrapster-production",
+            "enabled": true
+        }
+    ],
+    "tables": [
+        {
+            "$id": "products",
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "databaseId": "694c2463003b3254009c",
+            "name": "Products",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "sku_code",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 50,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "barcode",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 100,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "name",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 255,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "type",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "elements": [
+                        "single",
+                        "bundle"
+                    ],
+                    "format": "enum",
+                    "default": "single"
+                },
+                {
+                    "key": "price",
+                    "type": "double",
+                    "required": false,
+                    "array": false,
+                    "min": 0,
+                    "max": 9999999999.99,
+                    "default": null
+                },
+                {
+                    "key": "cost",
+                    "type": "double",
+                    "required": false,
+                    "array": false,
+                    "min": 0,
+                    "max": 9999999999.99,
+                    "default": null
+                },
+                {
+                    "key": "stock_quantity",
+                    "type": "integer",
+                    "required": false,
+                    "array": false,
+                    "min": 0,
+                    "max": 999999999,
+                    "default": 0
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "idx_sku_code",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "sku_code"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_barcode",
+                    "type": "unique",
+                    "status": "available",
+                    "columns": [
+                        "barcode"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_type",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "type"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "product_components",
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "databaseId": "694c2463003b3254009c",
+            "name": "Product Components",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "parent_product_id",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "child_product_id",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "quantity",
+                    "type": "integer",
+                    "required": false,
+                    "array": false,
+                    "min": 1,
+                    "max": 999999,
+                    "default": 1
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "idx_parent_product",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "parent_product_id"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_child_product",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "child_product_id"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_parent_child",
+                    "type": "unique",
+                    "status": "available",
+                    "columns": [
+                        "parent_product_id",
+                        "child_product_id"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "packaging_records",
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "databaseId": "694c2463003b3254009c",
+            "name": "Packaging Records",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "packaging_date",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 10,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "waybill_number",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 100,
+                    "default": null,
+                    "encrypt": false
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "idx_packaging_date",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "packaging_date"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_waybill_number",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "waybill_number"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_date_waybill",
+                    "type": "unique",
+                    "status": "available",
+                    "columns": [
+                        "packaging_date",
+                        "waybill_number"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "packaging_items",
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "databaseId": "694c2463003b3254009c",
+            "name": "Packaging Items",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "packaging_record_id",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "product_barcode",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 100,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "scanned_at",
+                    "type": "datetime",
+                    "required": true,
+                    "array": false,
+                    "format": "",
+                    "default": null
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "idx_packaging_record",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "packaging_record_id"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_product_barcode",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "product_barcode"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "import_jobs",
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "databaseId": "694c2463003b3254009c",
+            "name": "Import Jobs",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "user_id",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "status",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "elements": [
+                        "pending",
+                        "processing",
+                        "completed",
+                        "failed"
+                    ],
+                    "format": "enum",
+                    "default": "pending"
+                },
+                {
+                    "key": "file_id",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "result_file_id",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "filters",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 1000,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "stats",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 1000,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "error",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 2000,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "created_at",
+                    "type": "datetime",
+                    "required": true,
+                    "array": false,
+                    "format": "",
+                    "default": null
+                },
+                {
+                    "key": "completed_at",
+                    "type": "datetime",
+                    "required": false,
+                    "array": false,
+                    "format": "",
+                    "default": null
+                },
+                {
+                    "key": "action",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "elements": [
+                        "import-excel",
+                        "export-excel",
+                        "export-reporting-excel",
+                        "export-reporting-pdf",
+                        "send-report-email"
+                    ],
+                    "format": "enum",
+                    "default": null
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "idx_user_id",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "user_id"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_status",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "status"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_user_status",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "user_id",
+                        "status"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_action",
+                    "type": "key",
+                    "status": "failed",
+                    "columns": [
+                        "action"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_completed_at",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "completed_at"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_created_at",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "created_at"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "products",
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "databaseId": "694f3e220018c64719a5",
+            "name": "Products",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "sku_code",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 50,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "barcode",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 100,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "name",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 255,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "type",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "elements": [
+                        "single",
+                        "bundle"
+                    ],
+                    "format": "enum",
+                    "default": "single"
+                },
+                {
+                    "key": "price",
+                    "type": "double",
+                    "required": false,
+                    "array": false,
+                    "min": 0,
+                    "max": 9999999999.99,
+                    "default": null
+                },
+                {
+                    "key": "cost",
+                    "type": "double",
+                    "required": false,
+                    "array": false,
+                    "min": 0,
+                    "max": 9999999999.99,
+                    "default": null
+                },
+                {
+                    "key": "stock_quantity",
+                    "type": "integer",
+                    "required": false,
+                    "array": false,
+                    "min": 0,
+                    "max": 999999999,
+                    "default": 0
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "idx_sku_code",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "sku_code"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_barcode",
+                    "type": "unique",
+                    "status": "available",
+                    "columns": [
+                        "barcode"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_type",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "type"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "product_components",
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "databaseId": "694f3e220018c64719a5",
+            "name": "Product Components",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "parent_product_id",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "child_product_id",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "quantity",
+                    "type": "integer",
+                    "required": false,
+                    "array": false,
+                    "min": 1,
+                    "max": 999999,
+                    "default": 1
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "idx_parent_product",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "parent_product_id"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_child_product",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "child_product_id"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_parent_child",
+                    "type": "unique",
+                    "status": "available",
+                    "columns": [
+                        "parent_product_id",
+                        "child_product_id"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "packaging_records",
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "databaseId": "694f3e220018c64719a5",
+            "name": "Packaging Records",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "packaging_date",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 10,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "waybill_number",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 100,
+                    "default": null,
+                    "encrypt": false
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "idx_packaging_date",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "packaging_date"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_waybill_number",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "waybill_number"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_date_waybill",
+                    "type": "unique",
+                    "status": "available",
+                    "columns": [
+                        "packaging_date",
+                        "waybill_number"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "packaging_items",
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "databaseId": "694f3e220018c64719a5",
+            "name": "Packaging Items",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "packaging_record_id",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "product_barcode",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 100,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "scanned_at",
+                    "type": "datetime",
+                    "required": true,
+                    "array": false,
+                    "format": "",
+                    "default": null
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "idx_packaging_record",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "packaging_record_id"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_product_barcode",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "product_barcode"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "import_jobs",
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "databaseId": "694f3e220018c64719a5",
+            "name": "Import Jobs",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "user_id",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "action",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "elements": [
+                        "import",
+                        "export"
+                    ],
+                    "format": "enum",
+                    "default": null
+                },
+                {
+                    "key": "status",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "elements": [
+                        "pending",
+                        "processing",
+                        "completed",
+                        "failed"
+                    ],
+                    "format": "enum",
+                    "default": "pending"
+                },
+                {
+                    "key": "file_id",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "result_file_id",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "filters",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 1000,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "stats",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 1000,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "error",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 2000,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "created_at",
+                    "type": "datetime",
+                    "required": true,
+                    "array": false,
+                    "format": "",
+                    "default": null
+                },
+                {
+                    "key": "completed_at",
+                    "type": "datetime",
+                    "required": false,
+                    "array": false,
+                    "format": "",
+                    "default": null
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "idx_user_id",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "user_id"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_status",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "status"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_action",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "action"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_user_status",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "user_id",
+                        "status"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_completed_at",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "completed_at"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "idx_created_at",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "created_at"
+                    ],
+                    "orders": []
+                }
+            ]
+        }
+    ]
 }
