@@ -338,8 +338,9 @@ export default function Reports() {
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{group.dateRange}</p>
                           <p className="text-xs text-muted-foreground">
-                            {format(new Date(group.createdAt), 'MMM d, yyyy HH:mm')} • {formatDistanceToNow(new Date(group.createdAt), { addSuffix: true })}
+                            {format(new Date(group.createdAt), 'MMM d, yyyy, h:mm a')} — Generated {formatDistanceToNow(new Date(group.createdAt))} ago
                           </p>
+                          <p className="text-xs text-muted-foreground">{user?.name || user?.email}</p>
                         </div>
                         <div className="flex items-center gap-1">
                           {group.excel && (

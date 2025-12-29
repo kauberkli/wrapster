@@ -1,5 +1,5 @@
 import { task, logger } from "@trigger.dev/sdk/v3";
-import { Client, Databases, Storage, ID, Query } from "node-appwrite";
+import { Client, Databases, Storage, Users, ID, Query } from "node-appwrite";
 import { InputFile } from "node-appwrite/file";
 import * as XLSX from "xlsx";
 import PDFTable from "pdfkit-table";
@@ -58,6 +58,7 @@ function createAppwriteClient() {
   return {
     databases: new Databases(client),
     storage: new Storage(client),
+    users: new Users(client),
   };
 }
 
@@ -123,28 +124,27 @@ let cachedFontPath: string | null = null;
 
 function getBundledFontPath(): string | null {
   // Try to find the bundled font file
-  // In trigger.dev, additionalFiles are copied to the build directory
+  // In trigger.dev, additionalFiles are copied relative to the project root
   const possiblePaths = [
+    // Trigger.dev production paths (additionalFiles preserves directory structure)
+    "/app/trigger/fonts/NotoSansSC-Regular.ttf",
+    "/app/fonts/NotoSansSC-Regular.ttf",
     // Relative to current file in trigger directory
     path.join(__dirname, "fonts", "NotoSansSC-Regular.ttf"),
+    path.join(__dirname, "..", "fonts", "NotoSansSC-Regular.ttf"),
     // One level up from __dirname (if task file is in trigger/)
     path.join(__dirname, "..", "trigger", "fonts", "NotoSansSC-Regular.ttf"),
-    path.join(__dirname, "..", "fonts", "NotoSansSC-Regular.ttf"),
     // Relative to process cwd
     path.join(process.cwd(), "trigger", "fonts", "NotoSansSC-Regular.ttf"),
     path.join(process.cwd(), "fonts", "NotoSansSC-Regular.ttf"),
     // Direct path in build output
     "./trigger/fonts/NotoSansSC-Regular.ttf",
     "./fonts/NotoSansSC-Regular.ttf",
-    // Absolute path from root (trigger.dev build output structure)
-    "/app/trigger/fonts/NotoSansSC-Regular.ttf",
-    "/app/fonts/NotoSansSC-Regular.ttf",
   ];
 
   logger.info("Searching for bundled font", {
     __dirname,
     cwd: process.cwd(),
-    pathsToCheck: possiblePaths,
   });
 
   for (const fontPath of possiblePaths) {
@@ -161,9 +161,12 @@ function getBundledFontPath(): string | null {
 
   // List directory contents for debugging
   try {
+    const appContents = fs.existsSync("/app") ? fs.readdirSync("/app") : [];
+    const triggerContents = fs.existsSync("/app/trigger") ? fs.readdirSync("/app/trigger") : [];
     logger.info("Directory listing for debugging", {
+      app_contents: appContents,
+      trigger_contents: triggerContents,
       __dirname_contents: fs.existsSync(__dirname) ? fs.readdirSync(__dirname) : "dir not found",
-      cwd_contents: fs.readdirSync(process.cwd()),
     });
   } catch (err) {
     logger.warn("Failed to list directories for debugging", { error: err });
@@ -188,8 +191,12 @@ async function ensureFontFile(): Promise<string> {
 
   // Fetch Noto Sans SC font from CDN (supports Chinese characters)
   const fontUrls = [
-    "https://cdn.jsdelivr.net/gh/AuYuHui/cdn@0.0.9/fonts/NotoSansSC-Regular.ttf",
-    "https://cdn.jsdelivr.net/npm/@aspect-build/aspect-fonts@0.0.1/NotoSansSC-Regular.ttf",
+    // Google Fonts direct link
+    "https://fonts.gstatic.com/s/notosanssc/v37/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG9_EnYxNbPzS5HE.ttf",
+    // jsDelivr CDN with fontsource package
+    "https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.0.19/files/noto-sans-sc-chinese-simplified-400-normal.woff",
+    // Backup: Use a simpler Latin font if Chinese font fails
+    "https://fonts.gstatic.com/s/notosans/v36/o-0mIpQlx3QUlC5A4PNB6Ryti20_6n1iPHjcz6L1SoM-jCpoiyD9A99e.ttf",
   ];
 
   for (const url of fontUrls) {
@@ -415,21 +422,21 @@ async function generatePDF(data: PDFData): Promise<Buffer> {
       headers: [
         { label: "#", align: "center", headerColor: headerColor, headerOpacity: 1 },
         { label: "Date", align: "left", headerColor: headerColor, headerOpacity: 1 },
+        { label: "Time", align: "left", headerColor: headerColor, headerOpacity: 1 },
         { label: "Waybill", align: "left", headerColor: headerColor, headerOpacity: 1 },
         { label: "Barcode", align: "left", headerColor: headerColor, headerOpacity: 1 },
         { label: "Product Name", align: "left", headerColor: headerColor, headerOpacity: 1 },
-        { label: "Time", align: "left", headerColor: headerColor, headerOpacity: 1 },
       ],
       rows: data.exportData.map((row) => [
         String(row["No."]),
         row.Date,
+        row["Scanned At"].split(" ")[1] || row["Scanned At"],
         row.Waybill,
         row["Product Barcode"],
         row["Product Name"],
-        row["Scanned At"].split(" ")[1] || row["Scanned At"],
       ]),
     },
-    getTableOptions([25, 65, 100, 85, 170, 75], 520)
+    getTableOptions([25, 65, 55, 100, 85, 190], 520)
   );
 
   doc.end();
@@ -448,7 +455,7 @@ export const reportExportTask = task({
   },
   run: async (payload: ReportExportPayload) => {
     const { jobId, userId, startDate, endDate, format } = payload;
-    const { databases, storage } = createAppwriteClient();
+    const { databases, storage, users } = createAppwriteClient();
     const databaseId = process.env.APPWRITE_DATABASE_ID!;
     const bucketId = process.env.APPWRITE_BUCKET_ID!;
 
@@ -456,6 +463,15 @@ export const reportExportTask = task({
 
     try {
       await updateJobStatus(databases, jobId, "processing");
+
+      // Fetch user information
+      let exportedByName = "Unknown User";
+      try {
+        const user = await users.get(userId);
+        exportedByName = user.name || user.email || "Unknown User";
+      } catch (userError) {
+        logger.warn("Failed to fetch user information", { userId, error: userError });
+      }
 
       // Fetch all packaging records in the date range
       const allRecords: PackagingRecord[] = [];
@@ -580,6 +596,7 @@ export const reportExportTask = task({
         { Metric: "Total Waybill Records", Value: allRecords.length },
         { Metric: "Total Items Scanned", Value: allItems.length },
         { Metric: "Unique Products", Value: uniqueBarcodes.length },
+        { Metric: "Exported By", Value: exportedByName },
         { Metric: "Generated At", Value: formatDate(new Date().toISOString()) },
       ];
 
