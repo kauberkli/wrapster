@@ -468,45 +468,6 @@ export const packagingRecordService = {
   },
 
   /**
-   * Refresh the cache for a specific date
-   * Fetches fresh data from database and updates the cache
-   * Used after modifications to historical records
-   */
-  async refreshCache(date: string): Promise<void> {
-    const today = getTodayDate()
-    // Don't cache today's data
-    if (date === today) {
-      return
-    }
-
-    try {
-      console.log(`[Packaging] Refreshing cache for ${date}`)
-      // Invalidate existing cache
-      await packagingCacheService.invalidate(date)
-
-      // Fetch fresh data from database
-      const records = await this.listByDate(date)
-      const enrichedRecords = await this.enrichWithProducts(records)
-
-      // Set new cache
-      await packagingCacheService.set(date, enrichedRecords)
-      console.log(`[Packaging] Cache refreshed for ${date} with ${enrichedRecords.length} records`)
-
-      auditLogService
-        .log('packaging_cache_refresh', 'packaging_record', {
-          action_details: {
-            date,
-            recordCount: enrichedRecords.length,
-          },
-        })
-        .catch(console.error)
-    } catch (error) {
-      console.error(`[Packaging] Failed to refresh cache for ${date}:`, error)
-      // Don't throw - cache refresh failure shouldn't break the operation
-    }
-  },
-
-  /**
    * Get packaging records by date with cache-aside pattern
    * - For today: Query database directly for real-time data
    * - For past dates: Check cache first, fallback to database and update cache
@@ -704,9 +665,8 @@ export const packagingRecordService = {
    */
   async delete(recordId: string): Promise<void> {
     try {
-      // Get record details before deletion for audit and cache refresh
+      // Get record details before deletion for audit
       let recordDetails: Record<string, unknown> = {}
-      let packagingDate: string | null = null
       try {
         const record = await databaseService.getDocument<PackagingRecord>(
           COLLECTIONS.PACKAGING_RECORDS,
@@ -716,7 +676,6 @@ export const packagingRecordService = {
           packaging_date: record.packaging_date,
           waybill_number: record.waybill_number,
         }
-        packagingDate = record.packaging_date
       } catch {
         // Record may not exist, continue with deletion
       }

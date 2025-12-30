@@ -63,7 +63,7 @@ import {
   packagingRecordService,
 } from '@/lib/appwrite/packaging'
 import { productService } from '@/lib/appwrite/products'
-import { formatTime, isToday } from '@/lib/utils'
+import { formatTime, getTodayDate, isToday } from '@/lib/utils'
 import type { PackagingItemWithProduct, PackagingRecordWithProducts } from '@/types/packaging'
 import type { Product } from '@/types/product'
 
@@ -129,16 +129,6 @@ export default function Packaging() {
 
   // Delete dialog state
   const [deleteRecord, setDeleteRecord] = useState<PackagingRecordWithProducts | null>(null)
-
-  // Edit dialog state
-  const [editRecord, setEditRecord] = useState<PackagingRecordWithProducts | null>(null)
-  const [editWaybillNumber, setEditWaybillNumber] = useState('')
-  const [editItems, setEditItems] = useState<Array<{ barcode: string; productName: string }>>([])
-  const [isUpdating, setIsUpdating] = useState(false)
-  const [editProductInput, setEditProductInput] = useState('')
-  const [editSearchResults, setEditSearchResults] = useState<Product[]>([])
-  const [isEditSearching, setIsEditSearching] = useState(false)
-  const [editProductPopoverOpen, setEditProductPopoverOpen] = useState(false)
 
   // Product not found dialog state
   const [productNotFoundBarcode, setProductNotFoundBarcode] = useState<string | null>(null)
@@ -566,12 +556,7 @@ export default function Packaging() {
       // Invalidate products cache to reflect stock changes
       await queryClient.invalidateQueries({ queryKey: ['products'] })
 
-      // If adding to a historical date, refresh the cache (invalidate + re-create)
-      if (!isSelectedToday) {
-        await packagingRecordService.refreshCache(dateStr)
-      }
-
-      // Add to displayed records
+      // Add to today's records
       const completedRecord: PackagingRecordWithProducts = {
         ...newRecord,
         items: savedItems,

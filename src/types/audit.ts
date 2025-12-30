@@ -32,15 +32,12 @@ export type AuditActionType =
   | 'product_component_update'
   // Packaging actions
   | 'packaging_record_create'
-  | 'packaging_record_update'
   | 'packaging_record_delete'
   | 'packaging_record_view'
   | 'packaging_list_by_date'
   | 'packaging_view_by_date'
   | 'packaging_item_scan'
   | 'packaging_item_remove'
-  | 'packaging_items_update'
-  | 'packaging_cache_refresh'
   // Job actions
   | 'job_queue_import'
   | 'job_queue_export'
