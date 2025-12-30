@@ -99,7 +99,7 @@
     "productNotFoundTitle": "Product Not Found",
     "productNotFoundMessage": "The product with barcode \"{{barcode}}\" does not exist in the database. Please scan a valid product barcode.",
     "waybillExistsTitle": "Waybill Already Exists",
-    "waybillExistsMessage": "The waybill \"{{waybill}}\" already exists for today. Please enter a different waybill number.",
+    "waybillExistsMessage": "The waybill \"{{waybill}}\" already exists for this date. Please enter a different waybill number.",
     "recordSaved": "Packaging record saved",
     "enterWaybillError": "Please enter a waybill number",
     "scanProductError": "Please scan a product barcode",
@@ -112,7 +112,17 @@
     "stockRequired": "Required",
     "stockAvailable": "Available",
     "stockDeductionError": "Warning: Stock levels may not have been updated correctly",
-    "stockRestoreError": "Warning: Stock levels may not have been restored correctly"
+    "stockRestoreError": "Warning: Stock levels may not have been restored correctly",
+    "editRecordTitle": "Edit Packaging Record",
+    "editRecordDescription": "Modify the waybill number and scanned items for this record.",
+    "editWaybillNumber": "Waybill Number",
+    "scannedItems": "Scanned Items",
+    "addItem": "Add Item",
+    "noItemsScanned": "No items scanned",
+    "recordUpdated": "Packaging record updated",
+    "updateError": "Failed to update packaging record",
+    "updating": "Updating...",
+    "editing": "Editing"
   },
   "reports": {
     "title": "Reports",

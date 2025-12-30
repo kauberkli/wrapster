@@ -40,6 +40,7 @@ export type AuditActionType =
   | 'packaging_item_scan'
   | 'packaging_item_remove'
   | 'packaging_items_update'
+  | 'packaging_cache_refresh'
   // Job actions
   | 'job_queue_import'
   | 'job_queue_export'

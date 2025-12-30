@@ -99,7 +99,7 @@
     "productNotFoundTitle": "产品未找到",
     "productNotFoundMessage": "条码为 \"{{barcode}}\" 的产品不存在于数据库中。请扫描有效的产品条码。",
     "waybillExistsTitle": "运单已存在",
-    "waybillExistsMessage": "运单 \"{{waybill}}\" 今天已存在。请输入不同的运单号。",
+    "waybillExistsMessage": "运单 \"{{waybill}}\" 在此日期已存在。请输入不同的运单号。",
     "recordSaved": "包装记录已保存",
     "enterWaybillError": "请输入运单号",
     "scanProductError": "请扫描产品条码",
@@ -112,7 +112,17 @@
     "stockRequired": "需求",
     "stockAvailable": "库存",
     "stockDeductionError": "警告：库存数量可能未正确更新",
-    "stockRestoreError": "警告：库存数量可能未正确恢复"
+    "stockRestoreError": "警告：库存数量可能未正确恢复",
+    "editRecordTitle": "编辑包装记录",
+    "editRecordDescription": "修改此记录的运单号和扫描项目。",
+    "editWaybillNumber": "运单号",
+    "scannedItems": "扫描项目",
+    "addItem": "添加项目",
+    "noItemsScanned": "没有扫描项目",
+    "recordUpdated": "包装记录已更新",
+    "updateError": "更新包装记录失败",
+    "updating": "更新中...",
+    "editing": "编辑中"
   },
   "reports": {
     "title": "报告",

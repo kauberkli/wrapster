@@ -18,6 +18,7 @@ interface DatePickerProps {
   onDateChange: (date: Date | undefined) => void
   disabled?: boolean
   className?: string
+  maxDate?: Date // Optional maximum date (defaults to today)
 }
 
 export function DatePicker({
@@ -25,11 +26,13 @@ export function DatePicker({
   onDateChange,
   disabled,
   className,
+  maxDate,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false)
   const today = startOfDay(new Date())
+  const effectiveMaxDate = maxDate ? startOfDay(maxDate) : today
 
-  const isAtToday = date ? startOfDay(date).getTime() >= today.getTime() : false
+  const isAtMaxDate = date ? startOfDay(date).getTime() >= effectiveMaxDate.getTime() : false
 
   const handlePreviousDay = () => {
     if (!date) return
@@ -39,7 +42,7 @@ export function DatePicker({
   }
 
   const handleNextDay = () => {
-    if (!date || isAtToday) return
+    if (!date || isAtMaxDate) return
     const newDate = new Date(date)
     newDate.setDate(newDate.getDate() + 1)
     onDateChange(newDate)
@@ -80,7 +83,7 @@ export function DatePicker({
             mode="single"
             selected={date}
             onSelect={handleSelect}
-            disabled={{ after: today }}
+            disabled={{ after: effectiveMaxDate }}
             initialFocus
           />
         </PopoverContent>
@@ -89,7 +92,7 @@ export function DatePicker({
         variant="outline"
         size="icon-sm"
         onClick={handleNextDay}
-        disabled={disabled || isAtToday}
+        disabled={disabled || isAtMaxDate}
         className="shrink-0"
       >
         <ChevronRight className="h-4 w-4" />

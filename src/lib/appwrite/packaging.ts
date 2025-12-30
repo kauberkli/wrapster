@@ -468,6 +468,45 @@ export const packagingRecordService = {
   },
 
   /**
+   * Refresh the cache for a specific date
+   * Fetches fresh data from database and updates the cache
+   * Used after modifications to historical records
+   */
+  async refreshCache(date: string): Promise<void> {
+    const today = getTodayDate()
+    // Don't cache today's data
+    if (date === today) {
+      return
+    }
+
+    try {
+      console.log(`[Packaging] Refreshing cache for ${date}`)
+      // Invalidate existing cache
+      await packagingCacheService.invalidate(date)
+
+      // Fetch fresh data from database
+      const records = await this.listByDate(date)
+      const enrichedRecords = await this.enrichWithProducts(records)
+
+      // Set new cache
+      await packagingCacheService.set(date, enrichedRecords)
+      console.log(`[Packaging] Cache refreshed for ${date} with ${enrichedRecords.length} records`)
+
+      auditLogService
+        .log('packaging_cache_refresh', 'packaging_record', {
+          action_details: {
+            date,
+            recordCount: enrichedRecords.length,
+          },
+        })
+        .catch(console.error)
+    } catch (error) {
+      console.error(`[Packaging] Failed to refresh cache for ${date}:`, error)
+      // Don't throw - cache refresh failure shouldn't break the operation
+    }
+  },
+
+  /**
    * Get packaging records by date with cache-aside pattern
    * - For today: Query database directly for real-time data
    * - For past dates: Check cache first, fallback to database and update cache
@@ -541,27 +580,6 @@ export const packagingRecordService = {
     return {
       ...record,
       items,
-    }
-  },
-
-  /**
-   * Refresh cache for a specific date
-   * Invalidates existing cache and re-fetches from database
-   */
-  async refreshCache(date: string): Promise<void> {
-    try {
-      // Invalidate existing cache
-      await packagingCacheService.invalidate(date)
-
-      // Re-fetch and cache (only for non-today dates since today is not cached)
-      const today = getTodayDate()
-      if (date !== today) {
-        const records = await this.listByDate(date)
-        const enrichedRecords = await this.enrichWithProducts(records)
-        await packagingCacheService.set(date, enrichedRecords)
-      }
-    } catch (error) {
-      console.error('Failed to refresh packaging cache:', error)
     }
   },
 
