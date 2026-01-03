@@ -24,7 +24,9 @@
     "language": "Language",
     "english": "English",
     "chinese": "Chinese",
-    "remove": "Remove"
+    "remove": "Remove",
+    "today": "Today",
+    "refresh": "Refresh"
   },
   "sidebar": {
     "dashboard": "Dashboard",
@@ -121,8 +123,10 @@
     "noItemsScanned": "No items scanned",
     "recordUpdated": "Packaging record updated",
     "updateError": "Failed to update packaging record",
+    "recordNotFoundError": "Record no longer exists. It may have been deleted by another user.",
     "updating": "Updating...",
-    "editing": "Editing"
+    "editing": "Editing",
+    "doubleClickToEdit": "Double-click to edit quantity"
   },
   "reports": {
     "title": "Reports",

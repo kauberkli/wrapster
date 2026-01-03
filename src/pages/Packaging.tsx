@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Info, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Info, Loader2, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import {
   type ColumnDef,
   flexRender,
@@ -147,12 +147,14 @@ export default function Packaging() {
   // Edit record dialog state
   const [editRecord, setEditRecord] = useState<PackagingRecordWithProducts | null>(null)
   const [editWaybillNumber, setEditWaybillNumber] = useState('')
-  const [editItems, setEditItems] = useState<Array<{ barcode: string; productName: string }>>([])
+  const [editItems, setEditItems] = useState<Array<{ barcode: string; productName: string; quantity: number }>>([])
   const [editProductInput, setEditProductInput] = useState('')
   const [editSearchResults, setEditSearchResults] = useState<Product[]>([])
   const [editProductPopoverOpen, setEditProductPopoverOpen] = useState(false)
   const [isEditSearching, setIsEditSearching] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [editingQuantityIndex, setEditingQuantityIndex] = useState<number | null>(null)
+  const [editingQuantityValue, setEditingQuantityValue] = useState('')
 
   // Helper: Get available stock for a product (checks localStock first, then original)
   const getAvailableStock = useCallback((barcode: string, originalStock: number): number => {
@@ -301,6 +303,19 @@ export default function Packaging() {
     setIsEditMode(false) // Reset edit mode when changing dates
     fetchRecords()
   }, [fetchRecords])
+
+  // Auto-refresh on window focus to sync with database
+  useEffect(() => {
+    const handleFocus = () => {
+      // Only refresh if not in the middle of editing/submitting
+      if (!isSubmitting && !currentWaybill && !editRecord) {
+        fetchRecords()
+      }
+    }
+
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [fetchRecords, isSubmitting, currentWaybill, editRecord])
 
   // Search products when input changes
   useEffect(() => {
@@ -735,6 +750,9 @@ export default function Packaging() {
       // Invalidate products cache to reflect stock changes
       await queryClient.invalidateQueries({ queryKey: ['products'] })
 
+      // Clear local stock tracking since stock was restored in DB
+      setLocalStock(new Map())
+
       setDeleteRecord(null)
       setTodayRecords((prev) => prev.filter((r) => r.$id !== deleteRecord.$id))
     } catch (err) {
@@ -749,12 +767,21 @@ export default function Packaging() {
   const handleEditRecord = useCallback((record: PackagingRecordWithProducts) => {
     setEditRecord(record)
     setEditWaybillNumber(record.waybill_number)
-    setEditItems(
-      record.items.map((item) => ({
-        barcode: item.product_barcode,
-        productName: item.product_name,
-      }))
-    )
+    // Group items by barcode and sum quantities
+    const groupedItems = new Map<string, { barcode: string; productName: string; quantity: number }>()
+    for (const item of record.items) {
+      const existing = groupedItems.get(item.product_barcode)
+      if (existing) {
+        existing.quantity += 1
+      } else {
+        groupedItems.set(item.product_barcode, {
+          barcode: item.product_barcode,
+          productName: item.product_name,
+          quantity: 1,
+        })
+      }
+    }
+    setEditItems(Array.from(groupedItems.values()))
     setEditProductInput('')
     setEditSearchResults([])
     setEditProductPopoverOpen(false)
@@ -788,19 +815,85 @@ export default function Packaging() {
     }
   }, [editProductPopoverOpen, editProductInput, searchEditProducts])
 
-  // Add product to edit items
+  // Add product to edit items (group by barcode and sum quantities)
   const handleEditAddProduct = async (product: Product) => {
-    setEditItems((prev) => [
-      ...prev,
-      { barcode: product.barcode, productName: product.name },
-    ])
+    setEditItems((prev) => {
+      const existingIndex = prev.findIndex((item) => item.barcode === product.barcode)
+      if (existingIndex !== -1) {
+        // Product exists, increment quantity
+        const updated = [...prev]
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          quantity: updated[existingIndex].quantity + 1,
+        }
+        return updated
+      }
+      // New product, add with quantity 1
+      return [...prev, { barcode: product.barcode, productName: product.name, quantity: 1 }]
+    })
     setEditProductInput('')
     setEditProductPopoverOpen(false)
   }
 
-  // Remove product from edit items
+  // Remove product from edit items (decrement quantity or remove if 1)
   const handleEditRemoveItem = (index: number) => {
-    setEditItems((prev) => prev.filter((_, i) => i !== index))
+    setEditItems((prev) => {
+      const item = prev[index]
+      if (item.quantity > 1) {
+        // Decrement quantity
+        const updated = [...prev]
+        updated[index] = { ...item, quantity: item.quantity - 1 }
+        return updated
+      }
+      // Remove item completely
+      return prev.filter((_, i) => i !== index)
+    })
+  }
+
+  // Start editing quantity on double-click
+  const handleQuantityDoubleClick = (index: number, currentQuantity: number) => {
+    setEditingQuantityIndex(index)
+    setEditingQuantityValue(currentQuantity.toString())
+  }
+
+  // Save quantity on blur or Enter key
+  const handleQuantityBlur = () => {
+    if (editingQuantityIndex === null) return
+
+    const newQuantity = parseInt(editingQuantityValue, 10)
+    const index = editingQuantityIndex
+
+    // Validate: must be a positive integer
+    if (isNaN(newQuantity) || newQuantity < 1) {
+      // Reset to original value if invalid
+      setEditingQuantityIndex(null)
+      setEditingQuantityValue('')
+      return
+    }
+
+    // Update the quantity
+    setEditItems((prev) => {
+      if (newQuantity === 0) {
+        // Remove item if quantity is 0
+        return prev.filter((_, i) => i !== index)
+      }
+      const updated = [...prev]
+      updated[index] = { ...updated[index], quantity: newQuantity }
+      return updated
+    })
+
+    setEditingQuantityIndex(null)
+    setEditingQuantityValue('')
+  }
+
+  // Handle Enter key to save quantity
+  const handleQuantityKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleQuantityBlur()
+    } else if (e.key === 'Escape') {
+      setEditingQuantityIndex(null)
+      setEditingQuantityValue('')
+    }
   }
 
   // Submit edit changes via Appwrite Function
@@ -820,10 +913,18 @@ export default function Packaging() {
     try {
       setIsUpdating(true)
 
+      // Expand grouped items back to individual items for comparison and submission
+      const expandedItems: Array<{ barcode: string; productName: string }> = []
+      for (const item of editItems) {
+        for (let i = 0; i < item.quantity; i++) {
+          expandedItems.push({ barcode: item.barcode, productName: item.productName })
+        }
+      }
+
       // Check what changed
       const waybillChanged = editWaybillNumber !== editRecord.waybill_number
       const originalBarcodes = editRecord.items.map((i) => i.product_barcode).sort()
-      const newBarcodes = editItems.map((i) => i.barcode).sort()
+      const newBarcodes = expandedItems.map((i) => i.barcode).sort()
       const itemsChanged =
         originalBarcodes.length !== newBarcodes.length ||
         originalBarcodes.some((b, i) => b !== newBarcodes[i])
@@ -835,7 +936,7 @@ export default function Packaging() {
           editRecord.$id,
           waybillChanged ? { waybill_number: editWaybillNumber } : undefined,
           itemsChanged
-            ? editItems.map((item) => ({
+            ? expandedItems.map((item) => ({
                 product_barcode: item.barcode,
                 product_name: item.productName,
               }))
@@ -850,7 +951,17 @@ export default function Packaging() {
       toast.success(t('packaging.recordUpdated'))
     } catch (err) {
       console.error('Error updating record:', err)
-      toast.error(t('packaging.updateError'))
+
+      // Check if record was not found (deleted by another session)
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      if (errorMessage.includes('could not be found') || errorMessage.includes('not found')) {
+        toast.error(t('packaging.recordNotFoundError'))
+        setEditRecord(null)
+        // Refresh to sync with database
+        await fetchRecords()
+      } else {
+        toast.error(t('packaging.updateError'))
+      }
     } finally {
       setIsUpdating(false)
     }
@@ -1029,15 +1140,36 @@ export default function Packaging() {
             disabled={isSubmitting}
             maxDate={isEditMode ? new Date(Date.now() - 86400000) : undefined} // Yesterday when in edit mode
           />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => fetchRecords()}
+            disabled={isSubmitting || isLoading}
+            title={t('common.refresh')}
+          >
+            <RefreshCw className={`size-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
           {!isSelectedToday && (
-            <Button
-              variant={isEditMode ? 'default' : 'outline'}
-              onClick={() => setIsEditMode(!isEditMode)}
-              disabled={isSubmitting}
-            >
-              <Pencil className="mr-2 size-4" />
-              {isEditMode ? t('packaging.editing') : t('common.edit')}
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedDate(new Date())
+                  setIsEditMode(false)
+                }}
+                disabled={isSubmitting}
+              >
+                {t('common.today')}
+              </Button>
+              <Button
+                variant={isEditMode ? 'default' : 'outline'}
+                onClick={() => setIsEditMode(!isEditMode)}
+                disabled={isSubmitting}
+              >
+                <Pencil className="mr-2 size-4" />
+                {isEditMode ? t('packaging.editing') : t('common.edit')}
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -1435,6 +1567,8 @@ export default function Packaging() {
             setEditProductInput('')
             setEditSearchResults([])
             setEditProductPopoverOpen(false)
+            setEditingQuantityIndex(null)
+            setEditingQuantityValue('')
           }
         }}
       >
@@ -1544,15 +1678,37 @@ export default function Packaging() {
                             {item.barcode}
                           </div>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEditRemoveItem(index)}
-                          className="shrink-0 h-8 w-8 text-muted-foreground hover:text-destructive"
-                          disabled={isUpdating}
-                        >
-                          <X className="size-4" />
-                        </Button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {editingQuantityIndex === index ? (
+                            <input
+                              type="number"
+                              min="1"
+                              value={editingQuantityValue}
+                              onChange={(e) => setEditingQuantityValue(e.target.value)}
+                              onBlur={handleQuantityBlur}
+                              onKeyDown={handleQuantityKeyDown}
+                              className="w-12 h-6 text-sm font-medium text-center border rounded px-1 focus:outline-none focus:ring-1 focus:ring-primary"
+                              autoFocus
+                            />
+                          ) : (
+                            <span
+                              className="text-sm font-medium text-muted-foreground w-8 text-right cursor-pointer hover:text-primary hover:bg-muted rounded px-1"
+                              onDoubleClick={() => handleQuantityDoubleClick(index, item.quantity)}
+                              title={t('packaging.doubleClickToEdit')}
+                            >
+                              {item.quantity}
+                            </span>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEditRemoveItem(index)}
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            disabled={isUpdating || editingQuantityIndex === index}
+                          >
+                            <X className="size-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>

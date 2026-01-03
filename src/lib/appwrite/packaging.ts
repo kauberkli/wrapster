@@ -15,7 +15,8 @@ import type {
   PackagingItemWithProduct,
 } from '@/types/packaging'
 import { COLLECTIONS } from '@/types/packaging'
-import type { Product } from '@/types/product'
+import { COLLECTIONS as PRODUCT_COLLECTIONS } from '@/types/product'
+import type { Product, ProductComponent } from '@/types/product'
 
 // Function IDs - configurable via environment variables
 const CREATE_FUNCTION_ID = import.meta.env.VITE_APPWRITE_CREATE_PACKAGING_FUNCTION_ID || 'create-packaging'
@@ -243,10 +244,10 @@ export const packagingRecordService = {
         throw new Error(response.error || 'Function execution failed')
       }
 
-      // Invalidate cache for the updated record's date
+      // Invalidate cache for the updated record's date (don't re-fetch, let caller handle it)
       const packagingDate = response.record?.packaging_date
       if (packagingDate) {
-        await this.refreshCache(packagingDate)
+        await packagingCacheService.invalidate(packagingDate)
       }
 
       // Map the response to our types
@@ -319,10 +320,10 @@ export const packagingRecordService = {
         throw new Error(response.error || 'Function execution failed')
       }
 
-      // Invalidate cache for the deleted record's date
+      // Invalidate cache for the deleted record's date (don't re-fetch, let caller handle it)
       const packagingDate = response.deleted?.packaging_date
       if (packagingDate) {
-        await this.refreshCache(packagingDate)
+        await packagingCacheService.invalidate(packagingDate)
       }
 
       return {
@@ -377,29 +378,52 @@ export const packagingRecordService = {
   /**
    * List all packaging records for a specific date (direct database query)
    * Use getPackagingByDate for cache-aside pattern
+   * Optimized: Fetches all items in a single query instead of N+1
    */
   async listByDate(date: string): Promise<PackagingRecordWithItems[]> {
     const result = await databaseService.listDocuments<PackagingRecord>(
       COLLECTIONS.PACKAGING_RECORDS,
-      [Query.equal('packaging_date', date), Query.orderDesc('$createdAt')]
+      [
+        Query.equal('packaging_date', date),
+        Query.orderDesc('$createdAt'),
+        Query.limit(500), // Override Appwrite's default limit of 25
+      ]
     )
 
-    // Fetch items for each record
-    const recordsWithItems = await Promise.all(
-      result.documents.map(async (record) => {
-        const items = await packagingItemService.listByRecordId(record.$id)
-        return {
-          ...record,
-          items,
-        }
-      })
+    if (result.documents.length === 0) {
+      return []
+    }
+
+    // Fetch ALL items for all records in one query (avoid N+1)
+    const recordIds = result.documents.map((r) => r.$id)
+    const allItemsResult = await databaseService.listDocuments<PackagingItem>(
+      COLLECTIONS.PACKAGING_ITEMS,
+      [
+        Query.equal('packaging_record_id', recordIds),
+        Query.orderDesc('scanned_at'),
+        Query.limit(5000), // High limit to get all items
+      ]
     )
+
+    // Group items by record ID
+    const itemsByRecordId = new Map<string, PackagingItem[]>()
+    for (const item of allItemsResult.documents) {
+      const existing = itemsByRecordId.get(item.packaging_record_id) || []
+      existing.push(item)
+      itemsByRecordId.set(item.packaging_record_id, existing)
+    }
+
+    // Combine records with their items
+    const recordsWithItems = result.documents.map((record) => ({
+      ...record,
+      items: itemsByRecordId.get(record.$id) || [],
+    }))
 
     auditLogService.log('packaging_list_by_date', 'packaging_record', {
       action_details: {
         date,
         recordCount: recordsWithItems.length,
-        totalItems: recordsWithItems.reduce((sum, r) => sum + r.items.length, 0),
+        totalItems: allItemsResult.documents.length,
       },
     }).catch(console.error)
 
@@ -408,7 +432,7 @@ export const packagingRecordService = {
 
   /**
    * Enrich packaging records with product names and bundle components
-   * Uses batch fetching for efficiency
+   * Uses batch fetching for efficiency - avoids N+1 queries
    */
   async enrichWithProducts(
     records: PackagingRecordWithItems[]
@@ -419,6 +443,10 @@ export const packagingRecordService = {
       for (const item of record.items) {
         allBarcodes.add(item.product_barcode)
       }
+    }
+
+    if (allBarcodes.size === 0) {
+      return records.map((record) => ({ ...record, items: [] }))
     }
 
     // Batch fetch all products
@@ -437,7 +465,7 @@ export const packagingRecordService = {
       }
     }
 
-    // Fetch bundle components for all bundle products
+    // Find all bundle products
     const bundleProducts = Array.from(productMap.values()).filter(
       (p) => p.type === 'bundle'
     )
@@ -446,21 +474,54 @@ export const packagingRecordService = {
       Array<{ barcode: string; productName: string; quantity: number }>
     >()
 
-    for (const bundle of bundleProducts) {
-      try {
-        const withComponents = await productService.getWithComponents(bundle.$id)
-        if (withComponents.components && withComponents.components.length > 0) {
-          bundleComponentsMap.set(
-            bundle.barcode,
-            withComponents.components.map((comp) => ({
-              barcode: comp.product.barcode,
-              productName: comp.product.name,
-              quantity: comp.quantity,
-            }))
+    if (bundleProducts.length > 0) {
+      // Batch fetch ALL components for all bundles in ONE query
+      const bundleIds = bundleProducts.map((b) => b.$id)
+      const allComponentsResult = await databaseService.listDocuments<ProductComponent>(
+        PRODUCT_COLLECTIONS.PRODUCT_COMPONENTS,
+        [
+          Query.equal('parent_product_id', bundleIds),
+          Query.limit(500),
+        ]
+      )
+
+      // Collect all child product IDs
+      const childProductIds = [...new Set(
+        allComponentsResult.documents.map((c) => c.child_product_id)
+      )]
+
+      // Batch fetch all child products in ONE query
+      const childProductMap = new Map<string, Product>()
+      if (childProductIds.length > 0) {
+        for (let i = 0; i < childProductIds.length; i += 50) {
+          const batch = childProductIds.slice(i, i + 50)
+          const childResult = await databaseService.listDocuments<Product>(
+            PRODUCT_COLLECTIONS.PRODUCTS,
+            [Query.equal('$id', batch), Query.limit(50)]
           )
+          for (const child of childResult.documents) {
+            childProductMap.set(child.$id, child)
+          }
         }
-      } catch {
-        // Skip if components can't be fetched
+      }
+
+      // Group components by parent product and map to display format
+      for (const bundle of bundleProducts) {
+        const components = allComponentsResult.documents
+          .filter((c) => c.parent_product_id === bundle.$id)
+          .map((c) => {
+            const childProduct = childProductMap.get(c.child_product_id)
+            return {
+              barcode: childProduct?.barcode ?? '',
+              productName: childProduct?.name ?? 'Unknown',
+              quantity: c.quantity,
+            }
+          })
+          .filter((c) => c.barcode) // Remove components with missing products
+
+        if (components.length > 0) {
+          bundleComponentsMap.set(bundle.barcode, components)
+        }
       }
     }
 

@@ -24,7 +24,9 @@
     "language": "语言",
     "english": "英文",
     "chinese": "中文",
-    "remove": "移除"
+    "remove": "移除",
+    "today": "今天",
+    "refresh": "刷新"
   },
   "sidebar": {
     "dashboard": "仪表板",
@@ -121,8 +123,10 @@
     "noItemsScanned": "没有扫描项目",
     "recordUpdated": "包装记录已更新",
     "updateError": "更新包装记录失败",
+    "recordNotFoundError": "记录已不存在，可能已被其他用户删除。",
     "updating": "更新中...",
-    "editing": "编辑中"
+    "editing": "编辑中",
+    "doubleClickToEdit": "双击编辑数量"
   },
   "reports": {
     "title": "报告",

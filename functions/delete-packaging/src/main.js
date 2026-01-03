@@ -42,6 +42,15 @@ async function processBatches(items, processor, batchSize = BATCH_SIZE) {
 module.exports = async (context) => {
   const { req, res, log, error } = context;
 
+  // Track context for error messages
+  let traceContext = {
+    record_id: null,
+    waybill_number: null,
+    packaging_date: null,
+    current_operation: 'parsing request',
+    database_id: process.env.APPWRITE_DATABASE_ID || 'NOT_SET',
+  };
+
   try {
     // Parse request body
     let body;
@@ -58,6 +67,8 @@ module.exports = async (context) => {
       user_email,
       session_id,
     } = body;
+
+    traceContext.record_id = record_id;
 
     // Validate required fields
     if (!record_id || !user_id) {
@@ -81,7 +92,8 @@ module.exports = async (context) => {
     const databases = new Databases(client);
     const databaseId = process.env.APPWRITE_DATABASE_ID;
 
-    // 1. Get record details for audit
+    // 1. Get record details for audit and tracing
+    traceContext.current_operation = `fetching record from ${COLLECTIONS.PACKAGING_RECORDS}`;
     let recordDetails = {};
     let packagingDate = null;
     try {
@@ -95,9 +107,12 @@ module.exports = async (context) => {
         waybill_number: record.waybill_number,
       };
       packagingDate = record.packaging_date;
-    } catch {
-      // Record may not exist
-      log("Record not found, continuing with deletion");
+      // Update trace context with human-readable info
+      traceContext.waybill_number = record.waybill_number;
+      traceContext.packaging_date = record.packaging_date;
+    } catch (fetchError) {
+      // Record may not exist - include traceable info in log
+      log(`Record not found (ID: ${record_id}), continuing with deletion. Error: ${fetchError.message}`);
     }
 
     // 2. Get all items for this record
@@ -113,6 +128,7 @@ module.exports = async (context) => {
     log(`Found ${items.length} items to delete`);
 
     // 3. Restore stock if requested
+    traceContext.current_operation = `restoring stock in ${COLLECTIONS.PRODUCTS}`;
     let stockRestoreResults = { success: true, updated: 0, errors: [] };
 
     if (restore_stock && items.length > 0) {
@@ -220,15 +236,21 @@ module.exports = async (context) => {
           return {
             success: true,
             product_id: productId,
+            barcode: product.barcode,
             previous: product.stock_quantity,
             new: newStock,
             restored: quantity,
           };
         } catch (err) {
+          // Include traceable info: barcode, product name, waybill
+          const errorMsg = `Failed to restore stock for product "${product.name}" (barcode: ${product.barcode}) ` +
+            `in waybill ${traceContext.waybill_number || 'unknown'}: ${err.message}`;
           return {
             success: false,
             product_id: productId,
-            error: err.message,
+            barcode: product.barcode,
+            product_name: product.name,
+            error: errorMsg,
           };
         }
       });
@@ -244,6 +266,7 @@ module.exports = async (context) => {
     }
 
     // 4. Delete all items in batches to avoid overwhelming Appwrite
+    traceContext.current_operation = `deleting items from ${COLLECTIONS.PACKAGING_ITEMS}`;
     log(`Deleting ${items.length} items in batches of ${BATCH_SIZE}...`);
     await processBatches(items, (item) =>
       databases.deleteDocument(
@@ -255,6 +278,7 @@ module.exports = async (context) => {
     log(`Deleted ${items.length} items`);
 
     // 5. Delete the record
+    traceContext.current_operation = `deleting record from ${COLLECTIONS.PACKAGING_RECORDS}`;
     try {
       await databases.deleteDocument(
         databaseId,
@@ -263,8 +287,8 @@ module.exports = async (context) => {
       );
       log("Deleted packaging record");
     } catch (deleteError) {
-      // Record may already be deleted
-      log(`Record deletion note: ${deleteError.message}`);
+      // Record may already be deleted - include waybill for tracing
+      log(`Record deletion note for waybill ${traceContext.waybill_number || record_id}: ${deleteError.message}`);
     }
 
     // 6. Create audit log entry
@@ -309,12 +333,27 @@ module.exports = async (context) => {
       stock_restore: stockRestoreResults,
     });
   } catch (err) {
-    error(`Unhandled error: ${err.message || err}`);
+    // Build traceable error message with context
+    const contextInfo = [
+      `db: ${traceContext.database_id}`,
+      traceContext.waybill_number ? `waybill: ${traceContext.waybill_number}` : null,
+      traceContext.packaging_date ? `date: ${traceContext.packaging_date}` : null,
+      traceContext.record_id ? `record_id: ${traceContext.record_id}` : null,
+    ].filter(Boolean).join(', ');
+
+    const traceableError = `Error during "${traceContext.current_operation}" [${contextInfo}]: ${err.message || err}`;
+    error(traceableError);
 
     return res.json(
       {
         success: false,
-        error: err instanceof Error ? err.message : "Internal server error",
+        error: traceableError,
+        context: {
+          database_id: traceContext.database_id,
+          waybill_number: traceContext.waybill_number,
+          packaging_date: traceContext.packaging_date,
+          operation: traceContext.current_operation,
+        },
       },
       500
     );

@@ -36,3 +36,5 @@ dist-ssr
 
 # Trigger.dev
 .trigger
+.env.trigger.development
+.env.trigger.production

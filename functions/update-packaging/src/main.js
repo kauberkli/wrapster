@@ -46,6 +46,17 @@ async function processBatches(items, processor, batchSize = BATCH_SIZE) {
 module.exports = async (context) => {
   const { req, res, log, error } = context;
 
+  // Track context for error messages
+  let traceContext = {
+    record_id: null,
+    waybill_number: null,
+    original_waybill: null,
+    packaging_date: null,
+    current_operation: 'parsing request',
+    items_barcodes: [],
+    database_id: process.env.APPWRITE_DATABASE_ID || 'NOT_SET',
+  };
+
   try {
     // Parse request body
     let body;
@@ -63,6 +74,11 @@ module.exports = async (context) => {
       user_email,
       session_id,
     } = body;
+
+    // Update trace context
+    traceContext.record_id = record_id;
+    traceContext.waybill_number = waybill_number;
+    traceContext.items_barcodes = items?.map(i => i.product_barcode) || [];
 
     // Validate required fields
     if (!record_id || !user_id) {
@@ -97,12 +113,21 @@ module.exports = async (context) => {
     const databases = new Databases(client);
     const databaseId = process.env.APPWRITE_DATABASE_ID;
 
-    // 1. Get original record for audit
+    // 1. Get original record for audit and tracing
+    traceContext.current_operation = `fetching original record from ${COLLECTIONS.PACKAGING_RECORDS}`;
+
     const originalRecord = await databases.getDocument(
       databaseId,
       COLLECTIONS.PACKAGING_RECORDS,
       record_id
     );
+
+    // Update trace context with original record info
+    traceContext.original_waybill = originalRecord.waybill_number;
+    traceContext.packaging_date = originalRecord.packaging_date;
+    if (!traceContext.waybill_number) {
+      traceContext.waybill_number = originalRecord.waybill_number;
+    }
 
     let updatedRecord = originalRecord;
     let oldItems = [];
@@ -110,6 +135,7 @@ module.exports = async (context) => {
 
     // 2. Update waybill number if provided
     if (waybill_number !== undefined) {
+      traceContext.current_operation = `updating waybill number in ${COLLECTIONS.PACKAGING_RECORDS}`;
       updatedRecord = await databases.updateDocument(
         databaseId,
         COLLECTIONS.PACKAGING_RECORDS,
@@ -129,6 +155,7 @@ module.exports = async (context) => {
       }
 
       // Get existing items
+      traceContext.current_operation = `fetching existing items from ${COLLECTIONS.PACKAGING_ITEMS}`;
       const existingItemsResult = await databases.listDocuments(
         databaseId,
         COLLECTIONS.PACKAGING_ITEMS,
@@ -142,6 +169,7 @@ module.exports = async (context) => {
       log(`Deleting ${oldItems.length} existing items in batches of ${BATCH_SIZE}...`);
 
       // Delete all existing items in batches
+      traceContext.current_operation = `deleting existing items from ${COLLECTIONS.PACKAGING_ITEMS}`;
       await processBatches(oldItems, (item) =>
         databases.deleteDocument(
           databaseId,
@@ -152,19 +180,37 @@ module.exports = async (context) => {
 
       // Create new items in batches
       if (items.length > 0) {
+        traceContext.current_operation = `creating new items in ${COLLECTIONS.PACKAGING_ITEMS}`;
         log(`Creating ${items.length} new items in batches of ${BATCH_SIZE}...`);
-        newItems = await processBatches(items, (item) =>
-          databases.createDocument(
-            databaseId,
-            COLLECTIONS.PACKAGING_ITEMS,
-            ID.unique(),
-            {
-              packaging_record_id: record_id,
-              product_barcode: item.product_barcode,
-              scanned_at: item.scanned_at || new Date().toISOString(),
-            }
-          )
-        );
+
+        const createResults = await processBatches(items, async (item) => {
+          try {
+            const doc = await databases.createDocument(
+              databaseId,
+              COLLECTIONS.PACKAGING_ITEMS,
+              ID.unique(),
+              {
+                packaging_record_id: record_id,
+                product_barcode: item.product_barcode,
+                scanned_at: item.scanned_at || new Date().toISOString(),
+              }
+            );
+            return { success: true, doc };
+          } catch (err) {
+            error(`Failed to create item ${item.product_barcode}: ${err.message}`);
+            return { success: false, error: err.message, barcode: item.product_barcode };
+          }
+        });
+
+        const successfulItems = createResults.filter(r => r.success);
+        const failedItems = createResults.filter(r => !r.success);
+
+        newItems = successfulItems.map(r => r.doc);
+
+        log(`Successfully created ${successfulItems.length}/${items.length} items`);
+        if (failedItems.length > 0) {
+          error(`Failed to create ${failedItems.length} items: ${failedItems.map(f => f.barcode).join(', ')}`);
+        }
       }
     }
 
@@ -228,12 +274,33 @@ module.exports = async (context) => {
       })),
     });
   } catch (err) {
-    error(`Unhandled error: ${err.message || err}`);
+    // Build traceable error message with context
+    const contextInfo = [
+      `db: ${traceContext.database_id}`,
+      traceContext.waybill_number ? `waybill: ${traceContext.waybill_number}` : null,
+      traceContext.original_waybill && traceContext.original_waybill !== traceContext.waybill_number
+        ? `original_waybill: ${traceContext.original_waybill}` : null,
+      traceContext.packaging_date ? `date: ${traceContext.packaging_date}` : null,
+      traceContext.record_id ? `record_id: ${traceContext.record_id}` : null,
+      traceContext.items_barcodes.length > 0
+        ? `barcodes: ${traceContext.items_barcodes.slice(0, 5).join(', ')}${traceContext.items_barcodes.length > 5 ? '...' : ''}`
+        : null,
+    ].filter(Boolean).join(', ');
+
+    const traceableError = `Error during "${traceContext.current_operation}" [${contextInfo}]: ${err.message || err}`;
+    error(traceableError);
 
     return res.json(
       {
         success: false,
-        error: err instanceof Error ? err.message : "Internal server error",
+        error: traceableError,
+        context: {
+          database_id: traceContext.database_id,
+          waybill_number: traceContext.waybill_number,
+          original_waybill: traceContext.original_waybill,
+          packaging_date: traceContext.packaging_date,
+          operation: traceContext.current_operation,
+        },
       },
       500
     );

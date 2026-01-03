@@ -1,12 +1,13 @@
 /**
- * Script to cache all historical packaging data with product info
+ * Script to reset the packaging cache
  *
- * This script queries the database to find all packaging dates,
- * then caches each date's data (excluding today) with product names
- * and bundle components included for fast retrieval.
+ * This script:
+ * 1. Deletes the packaging_cache collection
+ * 2. Recreates it with the proper schema
+ * 3. Runs the cache warmup to populate fresh data
  *
  * Usage:
- *   npx tsx scripts/cache-all-packaging.ts
+ *   npx tsx scripts/reset-packaging-cache.ts
  */
 
 import dotenv from 'dotenv'
@@ -23,13 +24,7 @@ const config = {
   databaseId: process.env.VITE_APPWRITE_DATABASE_ID || '',
 }
 
-const COLLECTIONS = {
-  PACKAGING_RECORDS: 'packaging_records',
-  PACKAGING_ITEMS: 'packaging_items',
-  PACKAGING_CACHE: 'packaging_cache',
-  PRODUCTS: 'products',
-  PRODUCT_COMPONENTS: 'product_components',
-} as const
+const COLLECTION_ID = 'packaging_cache'
 
 const client = new Client()
   .setEndpoint(config.endpoint)
@@ -38,8 +33,99 @@ const client = new Client()
 
 const databases = new Databases(client)
 
-const API_DELAY = 50
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function deleteCollection(): Promise<void> {
+  console.log('Deleting packaging_cache collection...')
+  try {
+    await databases.deleteCollection(config.databaseId, COLLECTION_ID)
+    console.log('✓ Collection deleted')
+  } catch (error: unknown) {
+    const err = error as { code?: number; message?: string }
+    if (err.code === 404) {
+      console.log('✓ Collection does not exist, skipping delete')
+    } else {
+      throw error
+    }
+  }
+}
+
+async function createCollection(): Promise<void> {
+  console.log('Creating packaging_cache collection...')
+
+  await databases.createCollection(
+    config.databaseId,
+    COLLECTION_ID,
+    'Packaging Cache',
+    [
+      'read("users")',
+      'create("users")',
+      'update("users")',
+      'delete("users")',
+    ]
+  )
+  console.log('✓ Collection created')
+
+  console.log('Adding attributes...')
+
+  // cache_date - string, required, size 10
+  await databases.createStringAttribute(
+    config.databaseId,
+    COLLECTION_ID,
+    'cache_date',
+    10,
+    true
+  )
+  console.log('  ✓ cache_date')
+
+  // data - string, required, size 16MB
+  await databases.createStringAttribute(
+    config.databaseId,
+    COLLECTION_ID,
+    'data',
+    16777216,
+    true
+  )
+  console.log('  ✓ data')
+
+  // cached_at - datetime, required
+  await databases.createDatetimeAttribute(
+    config.databaseId,
+    COLLECTION_ID,
+    'cached_at',
+    true
+  )
+  console.log('  ✓ cached_at')
+
+  // Wait for attributes to be available
+  console.log('Waiting for attributes to be available...')
+  await delay(5000)
+
+  console.log('Adding index...')
+  await databases.createIndex(
+    config.databaseId,
+    COLLECTION_ID,
+    'idx_cache_date',
+    'unique',
+    ['cache_date']
+  )
+  console.log('  ✓ idx_cache_date')
+
+  // Wait for index to be available
+  await delay(2000)
+}
+
+// === Cache Warmup Logic (from cache-all-packaging.ts) ===
+
+const COLLECTIONS = {
+  PACKAGING_RECORDS: 'packaging_records',
+  PACKAGING_ITEMS: 'packaging_items',
+  PACKAGING_CACHE: 'packaging_cache',
+  PRODUCTS: 'products',
+  PRODUCT_COMPONENTS: 'product_components',
+} as const
+
+const API_DELAY = 50
 
 function getTodayDate(): string {
   return new Date().toISOString().split('T')[0]
@@ -125,7 +211,6 @@ async function fetchPackagingRecordsByDate(dateString: string): Promise<Packagin
   let offset = 0
   const limit = 100
 
-  // Fetch all records for the date
   while (true) {
     const result = await databases.listDocuments(
       config.databaseId,
@@ -153,7 +238,6 @@ async function fetchPackagingRecordsByDate(dateString: string): Promise<Packagin
     await delay(API_DELAY)
   }
 
-  // Fetch all items for all records
   const allItems: PackagingItem[] = []
   for (const record of allRecords) {
     const itemsResult = await databases.listDocuments(
@@ -179,11 +263,9 @@ async function fetchPackagingRecordsByDate(dateString: string): Promise<Packagin
     await delay(API_DELAY)
   }
 
-  // Collect unique barcodes and batch fetch products
   const uniqueBarcodes = [...new Set(allItems.map(item => item.product_barcode))]
   const productMap = new Map<string, Product>()
 
-  // Fetch products in batches
   for (let i = 0; i < uniqueBarcodes.length; i += 50) {
     const batch = uniqueBarcodes.slice(i, i + 50)
     const result = await databases.listDocuments(
@@ -202,7 +284,6 @@ async function fetchPackagingRecordsByDate(dateString: string): Promise<Packagin
     await delay(API_DELAY)
   }
 
-  // Fetch bundle components for bundle products
   const bundleProducts = Array.from(productMap.values()).filter(p => p.type === 'bundle')
   const bundleComponentsMap = new Map<string, BundleComponentInfo[]>()
 
@@ -219,7 +300,6 @@ async function fetchPackagingRecordsByDate(dateString: string): Promise<Packagin
         const childProductId = comp.child_product_id as string
         const quantity = comp.quantity as number
 
-        // Fetch child product details
         const childProduct = await databases.getDocument(
           config.databaseId,
           COLLECTIONS.PRODUCTS,
@@ -242,7 +322,6 @@ async function fetchPackagingRecordsByDate(dateString: string): Promise<Packagin
     }
   }
 
-  // Build records with enriched items
   const recordsWithProducts: PackagingRecordWithProducts[] = allRecords.map(record => {
     const recordItems = allItems.filter(item => item.packaging_record_id === record.$id)
     const enrichedItems: PackagingItemWithProduct[] = recordItems.map(item => {
@@ -265,93 +344,95 @@ async function fetchPackagingRecordsByDate(dateString: string): Promise<Packagin
 }
 
 async function cachePackagingData(dateString: string, data: PackagingRecordWithProducts[]): Promise<void> {
-  const existing = await databases.listDocuments(
-    config.databaseId,
-    COLLECTIONS.PACKAGING_CACHE,
-    [Query.equal('cache_date', dateString), Query.limit(1)]
-  )
-
   const cacheData = {
     cache_date: dateString,
     data: JSON.stringify(data),
     cached_at: new Date().toISOString(),
   }
 
-  if (existing.documents.length > 0) {
-    await databases.updateDocument(
-      config.databaseId,
-      COLLECTIONS.PACKAGING_CACHE,
-      existing.documents[0].$id,
-      cacheData
-    )
-  } else {
-    await databases.createDocument(
-      config.databaseId,
-      COLLECTIONS.PACKAGING_CACHE,
-      ID.unique(),
-      cacheData
-    )
+  await databases.createDocument(
+    config.databaseId,
+    COLLECTIONS.PACKAGING_CACHE,
+    ID.unique(),
+    cacheData
+  )
+}
+
+async function warmupCache(): Promise<void> {
+  console.log('\n--- Cache Warmup ---')
+  console.log(`Today: ${getTodayDate()} (will be skipped)\n`)
+
+  const dates = await getAllUniqueDates()
+
+  if (dates.length === 0) {
+    console.log('No historical packaging data found to cache.')
+    return
   }
+
+  console.log(`Found ${dates.length} historical date(s) to cache:`)
+  console.log(dates.join(', '))
+  console.log('')
+
+  let successCount = 0
+  let totalRecords = 0
+  let totalItems = 0
+
+  for (let i = 0; i < dates.length; i++) {
+    const dateString = dates[i]
+    process.stdout.write(`[${i + 1}/${dates.length}] Caching ${dateString}... `)
+
+    try {
+      const records = await fetchPackagingRecordsByDate(dateString)
+      const itemCount = records.reduce((sum, r) => sum + r.items.length, 0)
+
+      await cachePackagingData(dateString, records)
+
+      console.log(`✓ ${records.length} records, ${itemCount} items`)
+      successCount++
+      totalRecords += records.length
+      totalItems += itemCount
+    } catch (error) {
+      console.log(`✗ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+
+    await delay(100)
+  }
+
+  console.log('\n--- Summary ---')
+  console.log(`  Dates cached: ${successCount}/${dates.length}`)
+  console.log(`  Total records: ${totalRecords}`)
+  console.log(`  Total items: ${totalItems}`)
 }
 
 async function main() {
   console.log('='.repeat(50))
-  console.log('Cache All Historical Packaging Data (with Products)')
+  console.log('Reset Packaging Cache')
   console.log('='.repeat(50))
 
   if (!config.projectId || !config.apiKey || !config.databaseId) {
     console.error('Error: Missing required environment variables')
+    console.error('  VITE_APPWRITE_PROJECT_ID')
+    console.error('  APPWRITE_API_KEY')
+    console.error('  VITE_APPWRITE_DATABASE_ID')
     process.exit(1)
   }
 
   console.log(`\nEndpoint: ${config.endpoint}`)
   console.log(`Project: ${config.projectId}`)
-  console.log(`Database: ${config.databaseId}`)
-  console.log(`Today: ${getTodayDate()} (will be skipped)\n`)
+  console.log(`Database: ${config.databaseId}\n`)
 
   try {
-    // Get all unique dates
-    const dates = await getAllUniqueDates()
+    // Step 1: Delete collection
+    await deleteCollection()
 
-    if (dates.length === 0) {
-      console.log('No historical packaging data found to cache.')
-      return
-    }
+    // Step 2: Recreate collection
+    await createCollection()
 
-    console.log(`Found ${dates.length} historical date(s) to cache:`)
-    console.log(dates.join(', '))
-    console.log('')
-
-    let successCount = 0
-    let totalRecords = 0
-    let totalItems = 0
-
-    for (let i = 0; i < dates.length; i++) {
-      const dateString = dates[i]
-      process.stdout.write(`[${i + 1}/${dates.length}] Caching ${dateString}... `)
-
-      try {
-        const records = await fetchPackagingRecordsByDate(dateString)
-        const itemCount = records.reduce((sum, r) => sum + r.items.length, 0)
-
-        await cachePackagingData(dateString, records)
-
-        console.log(`✓ ${records.length} records, ${itemCount} items (with product info)`)
-        successCount++
-        totalRecords += records.length
-        totalItems += itemCount
-      } catch (error) {
-        console.log(`✗ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      }
-
-      await delay(100) // Small delay between dates
-    }
+    // Step 3: Warmup cache
+    await warmupCache()
 
     console.log('\n' + '='.repeat(50))
-    console.log('Cache warmup completed!')
-    console.log(`  Dates cached: ${successCount}/${dates.length}`)
-    console.log(`  Total records: ${totalRecords}`)
-    console.log(`  Total items: ${totalItems}`)
+    console.log('Cache reset completed!')
     console.log('='.repeat(50))
 
   } catch (error) {

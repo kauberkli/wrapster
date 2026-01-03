@@ -50,6 +50,16 @@ async function processBatches(items, processor, batchSize = BATCH_SIZE) {
 module.exports = async (context) => {
   const { req, res, log, error } = context;
 
+  // Track context for error messages
+  let traceContext = {
+    waybill_number: null,
+    packaging_date: null,
+    record_id: null,
+    current_operation: 'parsing request',
+    items_barcodes: [],
+    database_id: process.env.APPWRITE_DATABASE_ID || 'NOT_SET',
+  };
+
   try {
     // Parse request body
     let body;
@@ -68,6 +78,11 @@ module.exports = async (context) => {
       user_email,
       session_id,
     } = body;
+
+    // Update trace context
+    traceContext.waybill_number = waybill_number;
+    traceContext.packaging_date = packaging_date;
+    traceContext.items_barcodes = items?.map(i => i.product_barcode) || [];
 
     // Validate required fields
     if (!packaging_date || !waybill_number || !items || !user_id) {
@@ -102,6 +117,7 @@ module.exports = async (context) => {
     const databaseId = process.env.APPWRITE_DATABASE_ID;
 
     // 1. Create packaging record
+    traceContext.current_operation = `creating record in ${COLLECTIONS.PACKAGING_RECORDS}`;
     const record = await databases.createDocument(
       databaseId,
       COLLECTIONS.PACKAGING_RECORDS,
@@ -111,10 +127,12 @@ module.exports = async (context) => {
         waybill_number,
       }
     );
+    traceContext.record_id = record.$id;
 
     log(`Created packaging record: ${record.$id}`);
 
     // 2. Create all packaging items in batches to avoid overwhelming Appwrite
+    traceContext.current_operation = `creating items in ${COLLECTIONS.PACKAGING_ITEMS}`;
     log(`Creating ${items.length} packaging items in batches of ${BATCH_SIZE}...`);
     const createdItems = await processBatches(items, (item) =>
       databases.createDocument(
@@ -132,6 +150,7 @@ module.exports = async (context) => {
     log(`Created ${createdItems.length} packaging items`);
 
     // 3. Update stock for products (if stock_updates provided)
+    traceContext.current_operation = `updating stock in ${COLLECTIONS.PRODUCTS}`;
     let stockUpdateResults = { success: true, updated: 0, errors: [] };
 
     if (stock_updates && Array.isArray(stock_updates) && stock_updates.length > 0) {
@@ -161,7 +180,10 @@ module.exports = async (context) => {
       const results = await processBatches(stock_updates, async (update) => {
         const product = productMap.get(update.product_id);
         if (!product) {
-          return { success: false, error: `Product not found: ${update.product_id}` };
+          return {
+            success: false,
+            error: `Product not found (ID: ${update.product_id}) for waybill ${waybill_number}`
+          };
         }
 
         const newStock = Math.max(0, product.stock_quantity - update.deduct_amount);
@@ -176,14 +198,20 @@ module.exports = async (context) => {
           return {
             success: true,
             product_id: update.product_id,
+            barcode: product.barcode,
             previous: product.stock_quantity,
             new: newStock,
           };
         } catch (err) {
+          // Include traceable info: barcode, product name, waybill
+          const errorMsg = `Failed to update stock for product "${product.name}" (barcode: ${product.barcode}) ` +
+            `in waybill ${waybill_number}: ${err.message}`;
           return {
             success: false,
             product_id: update.product_id,
-            error: err.message,
+            barcode: product.barcode,
+            product_name: product.name,
+            error: errorMsg,
           };
         }
       });
@@ -253,12 +281,27 @@ module.exports = async (context) => {
       stock_updates: stockUpdateResults,
     });
   } catch (err) {
-    error(`Unhandled error: ${err.message || err}`);
+    // Build traceable error message with context
+    const contextInfo = [
+      `db: ${traceContext.database_id}`,
+      traceContext.waybill_number ? `waybill: ${traceContext.waybill_number}` : null,
+      traceContext.packaging_date ? `date: ${traceContext.packaging_date}` : null,
+      traceContext.items_barcodes.length > 0 ? `barcodes: ${traceContext.items_barcodes.slice(0, 5).join(', ')}${traceContext.items_barcodes.length > 5 ? '...' : ''}` : null,
+    ].filter(Boolean).join(', ');
+
+    const traceableError = `Error during "${traceContext.current_operation}" [${contextInfo}]: ${err.message || err}`;
+    error(traceableError);
 
     return res.json(
       {
         success: false,
-        error: err instanceof Error ? err.message : "Internal server error",
+        error: traceableError,
+        context: {
+          database_id: traceContext.database_id,
+          waybill_number: traceContext.waybill_number,
+          packaging_date: traceContext.packaging_date,
+          operation: traceContext.current_operation,
+        },
       },
       500
     );
