@@ -243,6 +243,12 @@ export const packagingRecordService = {
         throw new Error(response.error || 'Function execution failed')
       }
 
+      // Invalidate cache for the updated record's date
+      const packagingDate = response.record?.packaging_date
+      if (packagingDate) {
+        await this.refreshCache(packagingDate)
+      }
+
       // Map the response to our types
       const record = {
         $id: response.record.$id,

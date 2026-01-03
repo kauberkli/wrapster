@@ -525,21 +525,34 @@ export const reportExportTask = task({
       const allItems: Array<PackagingItem & { waybill_number: string; packaging_date: string }> = [];
 
       for (const record of allRecords) {
-        const itemsResult = await databases.listDocuments(databaseId, COLLECTIONS.PACKAGING_ITEMS, [
-          Query.equal("packaging_record_id", record.$id),
-          Query.orderAsc("scanned_at"),
-        ]);
+        // Paginate through all items for this record (Appwrite default limit is 25)
+        let itemOffset = 0;
+        const itemLimit = 100;
 
-        for (const item of itemsResult.documents) {
-          allItems.push({
-            $id: item.$id,
-            packaging_record_id: item.packaging_record_id as string,
-            product_barcode: item.product_barcode as string,
-            scanned_at: item.scanned_at as string,
-            waybill_number: record.waybill_number,
-            packaging_date: record.packaging_date,
-          });
+        while (true) {
+          const itemsResult = await databases.listDocuments(databaseId, COLLECTIONS.PACKAGING_ITEMS, [
+            Query.equal("packaging_record_id", record.$id),
+            Query.orderAsc("scanned_at"),
+            Query.limit(itemLimit),
+            Query.offset(itemOffset),
+          ]);
+
+          for (const item of itemsResult.documents) {
+            allItems.push({
+              $id: item.$id,
+              packaging_record_id: item.packaging_record_id as string,
+              product_barcode: item.product_barcode as string,
+              scanned_at: item.scanned_at as string,
+              waybill_number: record.waybill_number,
+              packaging_date: record.packaging_date,
+            });
+          }
+
+          if (itemsResult.documents.length < itemLimit) break;
+          itemOffset += itemLimit;
+          await delay(API_DELAY);
         }
+
         await delay(API_DELAY);
       }
 
